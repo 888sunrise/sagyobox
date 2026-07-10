@@ -8,6 +8,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- クライアントサイドでの確実なPDF生成用ライブラリ -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <!-- Excel/CSVの自動パース・読み込み解析用ライブラリ (SheetJS) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap');
         body { font-family: 'Noto Sans JP', sans-serif; }
@@ -287,8 +289,35 @@
                     <p class="text-[11px] text-amber-600 font-bold bg-amber-50 p-2 rounded border border-amber-200"><i class="fa-solid fa-triangle-exclamation"></i> 管理用簡易パスワードは「<b>admin</b>」に設定されています。</p>
                 </div>
 
+                <!-- 高機能インポート用コンテナ (ドラッグ&ドロップエリア) -->
+                <div id="modal-import-container" class="hidden mb-4 space-y-4">
+                    <p class="text-xs text-slate-500 leading-relaxed">
+                        Excelファイル（.xlsx / .xls）、CSVファイル（.csv）、またはJSONバックアップファイルを読み込んで、現在のデータを<b>上書きインポート</b>します。<br>
+                        ※同じ「所属会社」の行が複数存在する場合は、自動的に1つの会社カードにまとめて作業員を追加配備します。
+                    </p>
+                    
+                    <div id="drop-zone" 
+                         ondragover="event.preventDefault(); this.classList.add('border-indigo-500', 'bg-indigo-50/30');" 
+                         ondragleave="this.classList.remove('border-indigo-500', 'bg-indigo-50/30');" 
+                         ondrop="event.preventDefault(); this.classList.remove('border-indigo-500', 'bg-indigo-50/30'); if(event.dataTransfer.files.length) { document.getElementById('import-file-input').files = event.dataTransfer.files; handleFileImport({target: {files: event.dataTransfer.files}}); }"
+                         class="border-2 border-dashed border-indigo-200 hover:border-indigo-500 hover:bg-indigo-50/30 rounded-xl p-8 text-center cursor-pointer transition-all relative">
+                        <input type="file" id="import-file-input" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" accept=".xlsx,.xls,.csv,.json" onchange="handleFileImport(event)">
+                        <div class="space-y-2 pointer-events-none">
+                            <i class="fa-solid fa-cloud-arrow-up text-4xl text-indigo-400"></i>
+                            <p class="text-sm font-bold text-slate-700">ファイルを選択、またはここにドラッグ＆ドロップ</p>
+                            <p class="text-[11px] text-slate-400">対応形式: Excel (.xlsx, .xls) / CSV (.csv) / JSON (.json)</p>
+                        </div>
+                    </div>
+
+                    <div class="relative flex py-1 items-center">
+                        <div class="flex-grow border-t border-slate-200"></div>
+                        <span class="flex-shrink mx-4 text-[10px] text-slate-400 font-bold uppercase tracking-wider">または JSONテキストを直接貼り付け</span>
+                        <div class="flex-grow border-t border-slate-200"></div>
+                    </div>
+                </div>
+
                 <!-- 通常のテキストエリア -->
-                <textarea id="modal-textarea" rows="12" class="w-full border border-slate-300 rounded-xl p-4 font-mono text-[11px] focus:ring-2 focus:ring-indigo-500 outline-none bg-slate-50 shadow-inner" placeholder="JSONデータを入力..."></textarea>
+                <textarea id="modal-textarea" rows="8" class="w-full border border-slate-300 rounded-xl p-4 font-mono text-[11px] focus:ring-2 focus:ring-indigo-500 outline-none bg-slate-50 shadow-inner" placeholder="JSONデータを入力..."></textarea>
                 
                 <div class="mt-5 flex justify-end gap-3">
                     <button onclick="closeModal()" class="px-5 py-2.5 bg-slate-200 text-slate-700 rounded-lg font-bold text-sm hover:bg-slate-300 transition">閉じる</button>
@@ -472,6 +501,7 @@
         function openLoginModal() {
             document.getElementById('modal-title').textContent = "管理者ログイン";
             document.getElementById('modal-textarea').classList.add('hidden');
+            document.getElementById('modal-import-container').classList.add('hidden'); // インポート部は非表示
             document.getElementById('modal-login-container').classList.remove('hidden');
             document.getElementById('modal-overlay').classList.remove('hidden');
             document.getElementById('admin-password').value = "";
@@ -685,6 +715,7 @@
             renderList();
         }
 
+        // チェック切り替え
         function toggleWorkerSelection(index) {
             if (selectedWorkerIndices.has(index)) {
                 selectedWorkerIndices.delete(index);
@@ -736,7 +767,6 @@
             document.getElementById('count-company').textContent = filtered.length;
             let totalW = 0;
             filtered.forEach(i => {
-                // 有効な作業員のみカウント
                 const validWorkers = i.workers.filter(w => (w.name && w.name.trim()) || (w.phone && w.phone.trim()) || (w.car && w.car.trim()));
                 totalW += validWorkers.length;
             });
@@ -754,14 +784,14 @@
                     card.className = 'data-card bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden';
                 }
                 
-                // 名前・携帯・車両のいずれかが入力されている有効な作業員のみを抽出して描画
+                // 有効な作業員のみを抽出して描画
                 const validWorkers = item.workers.filter(w => 
                     (w.name && w.name.trim()) || 
                     (w.phone && w.phone.trim()) || 
                     (w.car && w.car.trim())
                 );
 
-                // 作業員リスト（最初の人は背景黄色＋バッジ表示）
+                // 作業員リスト（最初の人は代表者表示）
                 const workersHtml = validWorkers.map((w, idx) => {
                     const isRepresentative = (idx === 0);
                     let bgClass = isRepresentative 
@@ -803,7 +833,7 @@
                     `;
                 }).join('');
 
-                // 関連ドキュメントの表示HTML
+                // 関連ドキュメントの表示
                 let docsHtml = '';
                 if (item.docs && item.docs.length > 0) {
                     docsHtml = `
@@ -821,7 +851,7 @@
                     `;
                 }
 
-                // アクションボタン（作業者選択、コピー、編集など）
+                // アクションボタン
                 let actionsHtml = `<div class="flex flex-row md:flex-col gap-2 shrink-0 w-full md:w-auto">`;
 
                 if (isThisCardSelecting) {
@@ -1203,7 +1233,7 @@ ${selectedWorkersText}
                         `;
                     }
                     
-                    // 作業者情報。代表担当者(C列代表/index 0)の場合はExcelのように目印の薄い黄色の背景を付ける
+                    // 作業者情報
                     const workerBg = i === 0 ? 'background-color: #fffbeb;' : 'background-color: #ffffff;';
                     tableRowsHtml += `
                         <td style="border: 1px solid #94a3b8; padding: 6px; font-size: 10px; ${workerBg}">${escapeHTML(w.name || '---')}</td>
@@ -1225,11 +1255,11 @@ ${selectedWorkersText}
             const now = new Date();
             const nowStr = `${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日 ${now.getHours()}時${now.getMinutes()}分現在`;
 
-            // PDFとしてレンダリングするHTML表コンテナの構築 (A4横サイズ 297mm × 210mm に最適化)
+            // PDFとしてレンダリングするHTML表コンテナの構築
             const tempDiv = document.createElement('div');
             tempDiv.style.padding = '8mm';
             tempDiv.style.backgroundColor = '#ffffff';
-            tempDiv.style.width = '275mm'; // 横置きのコンテンツ実幅
+            tempDiv.style.width = '275mm';
 
             tempDiv.innerHTML = `
                 <div style="font-family: 'Noto Sans JP', sans-serif;">
@@ -1256,7 +1286,6 @@ ${selectedWorkersText}
                 </div>
             `;
 
-            // html2pdf 設定オプション (A4横サイズ出力)
             const opt = {
                 margin:       [10, 10, 10, 10],
                 filename:     '作業員・車両情報一覧.pdf',
@@ -1265,7 +1294,7 @@ ${selectedWorkersText}
                 jsPDF:        { unit: 'mm', format: 'a4', orientation: 'landscape' }
             };
 
-            // ライブラリでPDF出力・自動ダウンロードを実行
+            // ライブラリでPDF出力・自動ダウンロード
             html2pdf().set(opt).from(tempDiv).save().then(() => {
                 showToast("Excel風テーブルPDFが正常にダウンロードされました！");
             }).catch(err => {
@@ -1294,29 +1323,237 @@ ${selectedWorkersText}
             }, '全コピー');
         }
 
-        // --- 通常データのJSONインポートモーダル ---
+        // --- インポートモーダルの展開 ---
         function openImportModal() {
             if (!isAdminMode) return;
-            openModal('データ読み込み (JSON)', '', () => {
+            
+            document.getElementById('modal-title').textContent = "データのインポート (Excel / CSV / JSON)";
+            document.getElementById('modal-textarea').classList.remove('hidden');
+            document.getElementById('modal-textarea').value = "";
+            document.getElementById('modal-textarea').placeholder = "ここにバックアップしたJSONテキストを直接貼り付けてインポートすることもできます。";
+            
+            document.getElementById('modal-login-container').classList.add('hidden');
+            document.getElementById('modal-import-container').classList.remove('hidden'); // ドラッグ&ドロップ欄表示
+            document.getElementById('modal-overlay').classList.remove('hidden');
+            
+            // ファイル入力の初期化
+            document.getElementById('import-file-input').value = "";
+            
+            const btn = document.getElementById('modal-action-btn');
+            btn.textContent = "貼付けJSONから読み込む"; 
+            btn.onclick = () => {
+                const text = document.getElementById('modal-textarea').value.trim();
+                if (!text) {
+                    alert('JSONテキストを入力するか、ファイルをアップロードしてください。');
+                    return;
+                }
                 try {
-                    const json = JSON.parse(document.getElementById('modal-textarea').value);
-                    if (Array.isArray(json)) {
-                        items = json.map(item => ({
-                            ...item,
-                            isPending: item.isPending !== undefined ? item.isPending : false,
-                            docs: item.docs || []
-                        }));
-                        save(); renderList(); closeModal();
-                        showToast('データをインポートしました');
-                    } else { throw new Error(); }
-                } catch(e) { alert('形式が正しくありません。JSON配列を入力してください。'); }
-            }, 'インポート実行');
+                    const json = JSON.parse(text);
+                    processImportedJSON(json);
+                } catch(e) { 
+                    alert('JSONの解析に失敗しました。正しいフォーマットかご確認ください。'); 
+                }
+            };
         }
 
+        // --- アップロードされたファイルの読み込み・判定処理 ---
+        function handleFileImport(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            const extension = file.name.split('.').pop().toLowerCase();
+
+            showToast("ファイルを解析しています...", "warning");
+
+            if (extension === 'json') {
+                reader.onload = function(e) {
+                    try {
+                        const json = JSON.parse(e.target.result);
+                        processImportedJSON(json);
+                    } catch (err) {
+                        alert('JSONファイルの解析に失敗しました。正しいフォーマットかご確認ください。');
+                    }
+                };
+                reader.readAsText(file);
+            } else if (extension === 'csv' || extension === 'xlsx' || extension === 'xls') {
+                reader.onload = function(e) {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const firstSheetName = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[firstSheetName];
+                        
+                        // 2次元配列としてシートの全セルデータを取得
+                        const sheetData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                        processImportedSheet(sheetData);
+                    } catch (err) {
+                        console.error("SheetJS解析エラー:", err);
+                        alert('Excel/CSVファイルの解析に失敗しました。ファイルが破損しているか、非対応フォーマットの可能性があります。');
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            } else {
+                alert('対応していないファイル形式です。Excel(.xlsx, .xls)、CSV(.csv)、JSON(.json) を選択してください。');
+            }
+        }
+
+        // Excel/CSV用の高機能パース・会社マッピングロジック
+        function processImportedSheet(sheetData) {
+            if (sheetData.length < 2) {
+                alert('データが不足しているか、空のファイルです。');
+                return;
+            }
+
+            // 1行目のヘッダー行を読み取り、列名の位置をマッピングする
+            const headers = sheetData[0].map(h => String(h || '').trim());
+            
+            const idx = {
+                id: headers.findIndex(h => h.includes('ID') || h.includes('id')),
+                area: headers.findIndex(h => h.includes('エリア') || h.includes('地域')),
+                company: headers.findIndex(h => h.includes('所属会社') || h.includes('会社名') || h.includes('社名')),
+                zip: headers.findIndex(h => h.includes('郵便番号') || h.includes('郵便')),
+                address: headers.findIndex(h => h.includes('住所') || h.includes('所在地')),
+                tel: headers.findIndex(h => h.includes('固定電話') || h.includes('TEL') || h.includes('電話')),
+                remarks: headers.findIndex(h => h.includes('備考') || h.includes('特記事項')),
+                docs: headers.findIndex(h => h.includes('関連資料') || h.includes('資料')),
+                workerName: headers.findIndex(h => h.includes('作業員氏名') || h.includes('担当者') || h.includes('氏名') || h.includes('名前')),
+                workerPhone: headers.findIndex(h => h.includes('携帯') || h.includes('電話番号') || h.includes('連絡先')),
+                workerCar: headers.findIndex(h => h.includes('車両') || h.includes('車番') || h.includes('ナンバー'))
+            };
+
+            // 列が見つからない場合のフォールバック（デフォルトの列順）
+            if (idx.id === -1) idx.id = 0;
+            if (idx.area === -1) idx.area = 1;
+            if (idx.company === -1) idx.company = 2;
+            if (idx.zip === -1) idx.zip = 3;
+            if (idx.address === -1) idx.address = 4;
+            if (idx.tel === -1) idx.tel = 5;
+            if (idx.remarks === -1) idx.remarks = 6;
+            if (idx.docs === -1) idx.docs = 7;
+            if (idx.workerName === -1) idx.workerName = 8;
+            if (idx.workerPhone === -1) idx.workerPhone = 9;
+            if (idx.workerCar === -1) idx.workerCar = 10;
+
+            const companyMap = new Map();
+
+            // 2行目から順次データをパース
+            for (let r = 1; r < sheetData.length; r++) {
+                const row = sheetData[r];
+                if (!row || row.length === 0) continue;
+
+                const companyName = String(row[idx.company] || '').trim();
+                if (!companyName) continue; // 会社名が無い行はスキップ
+
+                // IDの一意判定、無い場合は社名から生成
+                let id = String(row[idx.id] || '').trim();
+                if (!id || id === '---') {
+                    id = 'imported_' + r + '_' + Date.now();
+                }
+
+                const area = String(row[idx.area] || '').trim();
+                const zip = String(row[idx.zip] || '').trim();
+                const address = String(row[idx.address] || '').trim();
+                const tel = String(row[idx.tel] || '').trim();
+                const remarks = String(row[idx.remarks] || '').trim();
+                const docsRaw = String(row[idx.docs] || '').trim();
+                
+                const workerName = String(row[idx.workerName] || '').trim();
+                const workerPhone = String(row[idx.workerPhone] || '').trim();
+                const workerCar = String(row[idx.workerCar] || '').trim();
+
+                // 関連資料データの復元
+                const docs = [];
+                if (docsRaw) {
+                    const docParts = docsRaw.split('|');
+                    docParts.forEach(p => {
+                        const match = p.trim().match(/^(excel|spreadsheet|pdf)\(([^)]+)\)$/i);
+                        if (match) {
+                            docs.push({ type: match[1].toLowerCase(), name: match[2], url: '#' });
+                        } else if (p.trim()) {
+                            docs.push({ type: 'excel', name: p.trim(), url: '#' });
+                        }
+                    });
+                }
+
+                // すでに同じ会社名・IDが存在する場合は、そのカードに紐付ける（1社複数作業員仕様の自動適用）
+                let compKey = id;
+                // IDがない簡易手動Excelなどのために、同じ会社名の場合は同じグループに束ねる
+                const existingKey = Array.from(companyMap.keys()).find(k => {
+                    const c = companyMap.get(k);
+                    return c.company === companyName;
+                });
+                if (existingKey) {
+                    compKey = existingKey;
+                }
+
+                if (!companyMap.has(compKey)) {
+                    companyMap.set(compKey, {
+                        id: id,
+                        area: area || '未設定',
+                        company: companyName,
+                        zip: zip,
+                        address: address,
+                        tel: tel,
+                        remarks: remarks,
+                        docs: docs,
+                        workers: [],
+                        isPending: false
+                    });
+                }
+
+                const comp = companyMap.get(compKey);
+
+                // 作業員情報の作成と配備
+                if (workerName || workerPhone || workerCar) {
+                    const isDuplicate = comp.workers.some(w => w.name === workerName && w.phone === workerPhone && w.car === workerCar);
+                    if (!isDuplicate) {
+                        comp.workers.push({
+                            name: workerName,
+                            phone: workerPhone,
+                            car: workerCar
+                        });
+                    }
+                }
+            }
+
+            const importedItems = Array.from(companyMap.values());
+            if (importedItems.length === 0) {
+                alert('有効な会社・作業員データを検出できませんでした。ヘッダー名や列順をご確認ください。');
+                return;
+            }
+
+            // 現在の items を上書きして保存・再描画
+            items = importedItems;
+            save();
+            renderList();
+            closeModal();
+            showToast(`${items.length} 社の会社情報をExcel/CSVから取り込み・上書きしました！`);
+        }
+
+        // JSON読み込み処理の完了
+        function processImportedJSON(json) {
+            if (Array.isArray(json)) {
+                items = json.map(item => ({
+                    ...item,
+                    isPending: item.isPending !== undefined ? item.isPending : false,
+                    docs: item.docs || []
+                }));
+                save(); 
+                renderList(); 
+                closeModal();
+                showToast('JSONデータをインポートしました！');
+            } else { 
+                alert('JSONフォーマットが正しくありません。配列の形式であることを確認してください。'); 
+            }
+        }
+
+        // モーダルオープン用基本関数
         function openModal(title, text, callback, label) {
             document.getElementById('modal-title').textContent = title;
             document.getElementById('modal-textarea').classList.remove('hidden');
             document.getElementById('modal-login-container').classList.add('hidden');
+            document.getElementById('modal-import-container').classList.add('hidden'); // インポート部はデフォルト非表示
             document.getElementById('modal-textarea').value = text;
             document.getElementById('modal-overlay').classList.remove('hidden');
             const btn = document.getElementById('modal-action-btn');
@@ -1335,7 +1572,11 @@ ${selectedWorkersText}
             }[tag] || tag));
         }
 
-        function closeModal() { document.getElementById('modal-overlay').classList.add('hidden'); }
+        // モーダルを閉じる
+        function closeModal() { 
+            document.getElementById('modal-overlay').classList.add('hidden'); 
+            document.getElementById('modal-import-container').classList.add('hidden');
+        }
     </script>
 </body>
 </html>
