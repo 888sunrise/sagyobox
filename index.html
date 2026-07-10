@@ -270,9 +270,9 @@
         </div>
     </div>
 
-    <!-- 通常モーダル：共有用 / インポート / ログイン用 -->
+    <!-- 通常モーダル：共有用 / インポート / ログイン用 / インポート結果 -->
     <div id="modal-overlay" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden border border-slate-200 animate-in fade-in duration-200">
+        <div class="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden border border-slate-200 transform transition-all duration-300 scale-100">
             <div class="bg-slate-800 text-white px-5 py-4 flex justify-between items-center font-bold">
                 <h3 id="modal-title">データ操作</h3>
                 <button onclick="closeModal()" class="text-slate-400 hover:text-white transition"><i class="fa-solid fa-times text-xl"></i></button>
@@ -313,6 +313,49 @@
                         <div class="flex-grow border-t border-slate-200"></div>
                         <span class="flex-shrink mx-4 text-[10px] text-slate-400 font-bold uppercase tracking-wider">または JSONテキストを直接貼り付け</span>
                         <div class="flex-grow border-t border-slate-200"></div>
+                    </div>
+                </div>
+
+                <!-- 差分ダッシュボード用コンテナ (インポート結果の表示用) -->
+                <div id="modal-dashboard-container" class="hidden mb-4 space-y-4">
+                    <div class="p-4 bg-indigo-50 border border-indigo-100 rounded-xl flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center shrink-0">
+                            <i class="fa-solid fa-circle-check text-lg animate-bounce"></i>
+                        </div>
+                        <div>
+                            <h4 class="font-bold text-indigo-900 text-sm">データのインポートが完了しました！</h4>
+                            <p class="text-xs text-indigo-700 mt-0.5">元のデータと比較した上書きの解析結果は以下の通りです。</p>
+                        </div>
+                    </div>
+
+                    <!-- メトリクスグリッド -->
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div class="p-3 bg-slate-50 border border-slate-200 rounded-lg text-center">
+                            <div class="text-[10px] font-bold text-slate-400 uppercase">総会社数</div>
+                            <div id="dash-total-companies" class="text-xl font-bold text-slate-800 mt-1">0</div>
+                        </div>
+                        <div class="p-3 bg-emerald-50 border border-emerald-100 rounded-lg text-center">
+                            <div class="text-[10px] font-bold text-emerald-600 uppercase">新規追加 (会社)</div>
+                            <div id="dash-new-companies" class="text-xl font-bold text-emerald-600 mt-1">0</div>
+                        </div>
+                        <div class="p-3 bg-amber-50 border border-amber-100 rounded-lg text-center">
+                            <div class="text-[10px] font-bold text-amber-600 uppercase">上書き更新 (会社)</div>
+                            <div id="dash-updated-companies" class="text-xl font-bold text-amber-600 mt-1">0</div>
+                        </div>
+                        <div class="p-3 bg-indigo-50 border border-indigo-100 rounded-lg text-center">
+                            <div class="text-[10px] font-bold text-indigo-600 uppercase">総作業員数</div>
+                            <div id="dash-total-workers" class="text-xl font-bold text-indigo-700 mt-1">0</div>
+                        </div>
+                    </div>
+
+                    <!-- 差分の詳細リスト表示 -->
+                    <div>
+                        <h5 class="text-xs font-bold text-slate-500 mb-2 flex items-center gap-1.5">
+                            <i class="fa-solid fa-list-ul"></i> 取り込み詳細ログ
+                        </h5>
+                        <div id="dash-log-list" class="max-h-48 overflow-y-auto border border-slate-200 rounded-lg divide-y text-xs font-medium">
+                            <!-- JSで挿入 -->
+                        </div>
                     </div>
                 </div>
 
@@ -501,7 +544,8 @@
         function openLoginModal() {
             document.getElementById('modal-title').textContent = "管理者ログイン";
             document.getElementById('modal-textarea').classList.add('hidden');
-            document.getElementById('modal-import-container').classList.add('hidden'); // インポート部は非表示
+            document.getElementById('modal-import-container').classList.add('hidden'); 
+            document.getElementById('modal-dashboard-container').classList.add('hidden'); 
             document.getElementById('modal-login-container').classList.remove('hidden');
             document.getElementById('modal-overlay').classList.remove('hidden');
             document.getElementById('admin-password').value = "";
@@ -1103,7 +1147,7 @@ ${selectedWorkersText}
             
             document.getElementById('form-title').innerHTML = '<i class="fa-solid fa-edit text-amber-600"></i> データを編集中';
             document.getElementById('submit-btn').querySelector('span').textContent = '更新を保存する';
-            document.getElementById('cancel-edit').classList.remove('hidden');
+            document.getElementById('cancel-edit').classList.add('hidden');
             
             toggleFormSidebar(true);
             document.getElementById('form-sidebar').scrollTo({ top: 0, behavior: 'smooth' });
@@ -1333,6 +1377,7 @@ ${selectedWorkersText}
             document.getElementById('modal-textarea').placeholder = "ここにバックアップしたJSONテキストを直接貼り付けてインポートすることもできます。";
             
             document.getElementById('modal-login-container').classList.add('hidden');
+            document.getElementById('modal-dashboard-container').classList.add('hidden'); // ダッシュボードを非表示
             document.getElementById('modal-import-container').classList.remove('hidden'); // ドラッグ&ドロップ欄表示
             document.getElementById('modal-overlay').classList.remove('hidden');
             
@@ -1396,6 +1441,138 @@ ${selectedWorkersText}
             } else {
                 alert('対応していないファイル形式です。Excel(.xlsx, .xls)、CSV(.csv)、JSON(.json) を選択してください。');
             }
+        }
+
+        // --- 差分比較およびインポートダッシュボード生成ロジック ---
+        function calculateAndShowDiff(newItems) {
+            let addedCount = 0;
+            let updatedCount = 0;
+            let unchangedCount = 0;
+            const logEntries = [];
+
+            // 作業員数の合計値算出
+            const totalWorkersCount = newItems.reduce((sum, item) => sum + (item.workers ? item.workers.length : 0), 0);
+
+            newItems.forEach(newItem => {
+                // 既存の社名にマッチするものを探す
+                const oldItem = items.find(old => old.company.toLowerCase() === newItem.company.toLowerCase());
+
+                if (!oldItem) {
+                    // 新規追加
+                    addedCount++;
+                    logEntries.push({
+                        type: 'add',
+                        company: newItem.company,
+                        message: `新規追加 [エリア: ${newItem.area} | 作業員数: ${newItem.workers.length}名]`
+                    });
+                } else {
+                    // すでに存在する。プロパティや作業員に変更があるか詳細検査
+                    const isMetadataChanged = oldItem.address !== newItem.address || 
+                                              oldItem.tel !== newItem.tel || 
+                                              oldItem.area !== newItem.area ||
+                                              oldItem.remarks !== newItem.remarks;
+                    
+                    const isWorkersChanged = JSON.stringify(oldItem.workers) !== JSON.stringify(newItem.workers);
+
+                    if (isMetadataChanged || isWorkersChanged) {
+                        updatedCount++;
+                        let detailMsg = '';
+                        if (isMetadataChanged && isWorkersChanged) detailMsg = '基本情報 & 作業員の変更';
+                        else if (isMetadataChanged) detailMsg = '基本情報(住所・TEL等)の更新';
+                        else if (isWorkersChanged) detailMsg = '作業員・車両情報の更新';
+
+                        logEntries.push({
+                            type: 'update',
+                            company: newItem.company,
+                            message: `上書き更新 [${detailMsg}]`
+                        });
+                    } else {
+                        unchangedCount++;
+                        logEntries.push({
+                            type: 'unchanged',
+                            company: newItem.company,
+                            message: `変更なし`
+                        });
+                    }
+                }
+            });
+
+            // 削除された会社があればログに追加 (現在のDBにあって、インポートファイルにないもの)
+            items.forEach(oldItem => {
+                const stillExists = newItems.some(newItem => newItem.company.toLowerCase() === oldItem.company.toLowerCase());
+                if (!stillExists) {
+                    logEntries.push({
+                        type: 'remove',
+                        company: oldItem.company,
+                        message: `インポートファイルに含まれなかった既存データ（上書きによりアーカイブされました）`
+                    });
+                }
+            });
+
+            // UIへの数値セット
+            document.getElementById('dash-total-companies').textContent = `${newItems.length} 社`;
+            document.getElementById('dash-new-companies').textContent = `${addedCount} 社`;
+            document.getElementById('dash-updated-companies').textContent = `${updatedCount} 社`;
+            document.getElementById('dash-total-workers').textContent = `${totalWorkersCount} 名`;
+
+            // ログのHTML書き出し
+            const logContainer = document.getElementById('dash-log-list');
+            logContainer.innerHTML = '';
+            
+            // 重要度順（追加・更新・削除・変更なし）にソートしてログを出力
+            logEntries.sort((a, b) => {
+                const priority = { add: 1, update: 2, remove: 3, unchanged: 4 };
+                return priority[a.type] - priority[b.type];
+            });
+
+            if (logEntries.length === 0) {
+                logContainer.innerHTML = `<div class="p-3 text-slate-400 text-center">変更データはありません。</div>`;
+            } else {
+                logEntries.forEach(log => {
+                    let badgeClass = '';
+                    let badgeLabel = '';
+                    if (log.type === 'add') {
+                        badgeClass = 'bg-emerald-100 text-emerald-800';
+                        badgeLabel = '新規追加';
+                    } else if (log.type === 'update') {
+                        badgeClass = 'bg-amber-100 text-amber-800';
+                        badgeLabel = '更新';
+                    } else if (log.type === 'remove') {
+                        badgeClass = 'bg-slate-100 text-slate-500 line-through';
+                        badgeLabel = '非含有';
+                    } else {
+                        badgeClass = 'bg-slate-100 text-slate-600';
+                        badgeLabel = '変更なし';
+                    }
+
+                    const div = document.createElement('div');
+                    div.className = 'p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 hover:bg-slate-50';
+                    div.innerHTML = `
+                        <div class="flex items-center gap-2">
+                            <span class="px-2 py-0.5 rounded text-[10px] font-bold ${badgeClass}">${badgeLabel}</span>
+                            <span class="font-bold text-slate-700">${escapeHTML(log.company)}</span>
+                        </div>
+                        <span class="text-slate-500 text-[10px] sm:text-right font-normal">${escapeHTML(log.message)}</span>
+                    `;
+                    logContainer.appendChild(div);
+                });
+            }
+
+            // モーダルのビューポート切替
+            document.getElementById('modal-title').textContent = "インポート結果ダッシュボード";
+            document.getElementById('modal-textarea').classList.add('hidden');
+            document.getElementById('modal-login-container').classList.add('hidden');
+            document.getElementById('modal-import-container').classList.add('hidden');
+            document.getElementById('modal-dashboard-container').classList.remove('hidden');
+
+            const btn = document.getElementById('modal-action-btn');
+            btn.textContent = "確認完了";
+            btn.onclick = closeModal;
+
+            // 実際に items を更新して保存、画面反映
+            items = newItems;
+            save();
+            renderList();
         }
 
         // Excel/CSV用の高機能パース・会社マッピングロジック
@@ -1523,26 +1700,20 @@ ${selectedWorkersText}
                 return;
             }
 
-            // 現在の items を上書きして保存・再描画
-            items = importedItems;
-            save();
-            renderList();
-            closeModal();
-            showToast(`${items.length} 社の会社情報をExcel/CSVから取り込み・上書きしました！`);
+            // 既存のアイテムと比較差分を取ってインポート結果画面を表示
+            calculateAndShowDiff(importedItems);
         }
 
         // JSON読み込み処理の完了
         function processImportedJSON(json) {
             if (Array.isArray(json)) {
-                items = json.map(item => ({
+                const importedItems = json.map(item => ({
                     ...item,
                     isPending: item.isPending !== undefined ? item.isPending : false,
                     docs: item.docs || []
                 }));
-                save(); 
-                renderList(); 
-                closeModal();
-                showToast('JSONデータをインポートしました！');
+                // 差分ダッシュボードを表示
+                calculateAndShowDiff(importedItems);
             } else { 
                 alert('JSONフォーマットが正しくありません。配列の形式であることを確認してください。'); 
             }
@@ -1553,7 +1724,8 @@ ${selectedWorkersText}
             document.getElementById('modal-title').textContent = title;
             document.getElementById('modal-textarea').classList.remove('hidden');
             document.getElementById('modal-login-container').classList.add('hidden');
-            document.getElementById('modal-import-container').classList.add('hidden'); // インポート部はデフォルト非表示
+            document.getElementById('modal-import-container').classList.add('hidden'); 
+            document.getElementById('modal-dashboard-container').classList.add('hidden'); 
             document.getElementById('modal-textarea').value = text;
             document.getElementById('modal-overlay').classList.remove('hidden');
             const btn = document.getElementById('modal-action-btn');
@@ -1576,6 +1748,7 @@ ${selectedWorkersText}
         function closeModal() { 
             document.getElementById('modal-overlay').classList.add('hidden'); 
             document.getElementById('modal-import-container').classList.add('hidden');
+            document.getElementById('modal-dashboard-container').classList.add('hidden');
         }
     </script>
 </body>
