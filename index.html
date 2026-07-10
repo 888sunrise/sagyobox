@@ -1,0 +1,1341 @@
+<!DOCTYPE html>
+<html lang="ja" class="h-full bg-slate-50">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>作業員・車両情報 管理共有ツール</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- クライアントサイドでの確実なPDF生成用ライブラリ -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap');
+        body { font-family: 'Noto Sans JP', sans-serif; }
+        .data-card { transition: transform 0.2s, box-shadow 0.2s; }
+        .data-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        .aside-transition { transition: all 0.3s ease-in-out; }
+        
+        /* 印刷（PDF保存）時に不要なUIパーツを自動非表示にするスタイル設定 */
+        @media print {
+            header, aside, #toast-container, #modal-overlay, #btn-toggle-form, 
+            #search-input, #btn-search-clear, #count-company, #count-worker, 
+            button, .border-b .flex, .flex-row.md\:flex-col, .toolbar-area {
+                display: none !important;
+            }
+            body {
+                background: white !important;
+                color: black !important;
+            }
+            main {
+                display: block !important;
+                max-width: 100% !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+            #data-list {
+                display: block !important;
+                overflow: visible !important;
+                padding: 0 !important;
+            }
+            .data-card {
+                page-break-inside: avoid !important;
+                border: 1px solid #cbd5e1 !important;
+                margin-bottom: 24px !important;
+                box-shadow: none !important;
+                background: white !important;
+            }
+        }
+    </style>
+</head>
+<body class="h-full flex flex-col text-slate-800">
+
+    <header class="bg-indigo-800 text-white shadow-lg shrink-0">
+        <div class="max-w-[1600px] mx-auto px-4 py-3 flex flex-col lg:flex-row justify-between items-center gap-3">
+            <div class="flex items-center gap-3 w-full lg:w-auto">
+                <i class="fa-solid fa-database text-2xl text-indigo-300"></i>
+                <div>
+                    <h1 class="text-lg font-bold leading-none">作業員・車両情報 管理共有ツール</h1>
+                    <p class="text-[10px] text-indigo-200 mt-1 uppercase tracking-widest">Role-Based Access Management</p>
+                </div>
+            </div>
+            
+            <!-- 管理者/一般 状態インジケータ & ボタン -->
+            <div class="flex flex-wrap items-center gap-2 w-full lg:w-auto justify-end">
+                <div id="mode-badge" class="bg-indigo-900/80 border border-indigo-700 text-xs px-3 py-1.5 rounded-md flex items-center gap-1.5 mr-2">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" id="mode-dot"></span>
+                    <span id="mode-text" class="font-bold text-indigo-100">閲覧モード (共有中)</span>
+                </div>
+
+                <!-- 出力機能の拡張：選択可能なエクスポートメニュー -->
+                <button onclick="openExportChoiceModal()" class="bg-indigo-700 hover:bg-indigo-600 text-xs px-3 py-1.5 rounded-md flex items-center gap-1.5 transition border border-indigo-500 shadow-sm font-bold">
+                    <i class="fa-solid fa-file-export"></i> データ出力 (Excel/PDF選択)
+                </button>
+
+                <!-- 管理用：インポートと復元 (初期状態では非表示) -->
+                <button id="btn-import" onclick="openImportModal()" class="hidden bg-slate-700 hover:bg-slate-600 text-xs px-3 py-1.5 rounded-md flex items-center gap-1.5 transition border border-slate-500 shadow-sm font-bold">
+                    <i class="fa-solid fa-file-import"></i> インポート
+                </button>
+                <button id="btn-reset" onclick="resetToInitial()" class="hidden bg-amber-600 hover:bg-amber-500 text-xs px-3 py-1.5 rounded-md flex items-center gap-1.5 transition shadow-sm font-bold">
+                    <i class="fa-solid fa-rotate-left"></i> 初期データに復元
+                </button>
+
+                <div class="border-l border-indigo-700 h-6 mx-1 hidden lg:block"></div>
+
+                <!-- モード切替ボタン -->
+                <button id="btn-auth" onclick="toggleAuthMode()" class="bg-slate-900 hover:bg-slate-950 text-xs px-3 py-1.5 rounded-md flex items-center gap-1.5 transition border border-slate-700 shadow-md font-bold">
+                    <i class="fa-solid fa-lock" id="auth-icon"></i> <span id="auth-btn-text">管理者ログイン</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-1 overflow-hidden flex flex-col md:flex-row max-w-[1600px] w-full mx-auto relative">
+        
+        <!-- 入力エリア（普段は非表示/閲覧者・管理者ともに展開して登録可能） -->
+        <aside id="form-sidebar" class="hidden w-full md:w-[420px] border-r border-slate-200 bg-white overflow-y-auto p-4 shrink-0 shadow-xl aside-transition z-10">
+            <div class="flex justify-between items-center mb-4 border-b pb-2">
+                <h2 id="form-title" class="font-bold text-slate-700 flex items-center gap-2">
+                    <i class="fa-solid fa-pen-to-square text-indigo-600"></i> 情報登録・編集
+                </h2>
+                <div class="flex items-center gap-2">
+                    <button id="cancel-edit" onclick="resetForm()" class="hidden text-xs text-rose-500 font-bold hover:underline">キャンセル</button>
+                    <button onclick="toggleFormSidebar(false)" class="text-slate-400 hover:text-slate-600 text-sm p-1" title="閉じる">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            </div>
+
+            <form id="main-form" onsubmit="handleFormSubmit(event)" class="space-y-4">
+                <input type="hidden" id="edit-id">
+                
+                <div class="space-y-3 bg-indigo-50/50 p-3 rounded-lg border border-indigo-100">
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-500">エリア <span class="text-rose-500">*</span></label>
+                            <input type="text" id="area" required placeholder="北海道" class="w-full px-2 py-1.5 border border-slate-300 rounded text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-500">固定電話</label>
+                            <input type="text" id="landline" placeholder="03-0000-0000" class="w-full px-2 py-1.5 border border-slate-300 rounded text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-500">会社名 <span class="text-rose-500">*</span></label>
+                        <input type="text" id="company-name" required placeholder="株式会社 〇〇" class="w-full px-2 py-1.5 border border-slate-300 rounded text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-bold">
+                    </div>
+                    <div class="grid grid-cols-3 gap-2">
+                        <div class="col-span-1">
+                            <label class="block text-[10px] font-bold text-slate-500">郵便番号</label>
+                            <input type="text" id="zipcode" placeholder="000-0000" class="w-full px-2 py-1.5 border border-slate-300 rounded text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                        </div>
+                        <div class="col-span-2">
+                            <label class="block text-[10px] font-bold text-slate-500">住所</label>
+                            <input type="text" id="address" placeholder="住所詳細" class="w-full px-2 py-1.5 border border-slate-300 rounded text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 登録項目：関連資料 (Excel / スプレッドシート / PDF が選択可能) -->
+                <div class="bg-emerald-50/50 p-3 rounded-lg border border-emerald-100">
+                    <div class="flex justify-between items-center mb-2">
+                        <h3 class="text-xs font-bold text-emerald-800 flex items-center gap-1">
+                            <i class="fa-solid fa-file-invoice"></i> 関連資料の紐付け (エクセル/PDF等)
+                        </h3>
+                        <button type="button" onclick="addDocField()" class="text-[10px] bg-emerald-600 text-white font-bold px-2 py-1 rounded hover:bg-emerald-700 transition">
+                            + 資料追加
+                        </button>
+                    </div>
+                    <div id="doc-fields-container" class="space-y-2">
+                        <!-- 動的関連ファイル設定フィールド -->
+                    </div>
+                </div>
+
+                <div class="pt-2">
+                    <div class="flex justify-between items-center mb-2">
+                        <h3 class="text-xs font-bold text-slate-600 flex items-center gap-1">
+                            <i class="fa-solid fa-users"></i> 作業員・車両リスト
+                        </h3>
+                        <button type="button" onclick="addWorkerField()" class="text-[10px] bg-indigo-600 text-white font-bold px-2 py-1 rounded hover:bg-indigo-700 transition">
+                            + 担当を追加
+                        </button>
+                    </div>
+                    <div id="worker-fields-container" class="space-y-3">
+                        <!-- 動的作業者フィールド -->
+                    </div>
+                </div>
+
+                <div class="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">備考 / 特記事項</label>
+                    <textarea id="remarks" rows="2" class="w-full px-2 py-1.5 border border-slate-300 rounded text-sm focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="金額設定やサイズ詳細など"></textarea>
+                </div>
+
+                <button type="submit" id="submit-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-lg shadow-md transition-all flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-floppy-disk"></i> <span>保存する</span>
+                </button>
+            </form>
+        </aside>
+
+        <!-- 一覧表示エリア -->
+        <section class="flex-1 flex flex-col bg-slate-50 overflow-hidden">
+            <!-- 検索 & 登録フォームトリガーツールバー -->
+            <div class="p-4 bg-white border-b border-slate-200 flex flex-col md:flex-row gap-3 items-center toolbar-area">
+                <button id="btn-toggle-form" onclick="toggleFormSidebar()" class="w-full md:w-auto bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg flex items-center justify-center gap-2 shadow transition-all shrink-0">
+                    <i class="fa-solid fa-plus"></i> <span id="btn-toggle-form-text">新規登録フォームを開く</span>
+                </button>
+
+                <div class="relative flex-1 w-full">
+                    <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                    <input type="text" id="search-input" oninput="handleSearchInput(); renderList()" placeholder="社名、エリア、人名、車両、住所、資料名から検索..." class="w-full pl-11 pr-12 py-2.5 border border-slate-200 rounded-full focus:ring-2 focus:ring-indigo-500 outline-none text-sm shadow-sm">
+                    <button id="btn-search-clear" onclick="clearSearch()" class="hidden absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition" title="検索をクリア">
+                        <i class="fa-solid fa-circle-xmark text-lg"></i>
+                    </button>
+                </div>
+                
+                <div class="flex items-center gap-4 text-xs font-bold text-slate-500 shrink-0 bg-slate-100 px-4 py-2 rounded-full border border-slate-200 w-full md:w-auto justify-center md:justify-start">
+                    <div>登録: <span id="count-company" class="text-indigo-600">0</span> 社</div>
+                    <div class="border-l border-slate-300 h-4 mx-1"></div>
+                    <div>総員: <span id="count-worker" class="text-indigo-600">0</span> 名</div>
+                </div>
+            </div>
+
+            <!-- カードリスト本体 -->
+            <div id="data-list" class="flex-1 overflow-y-auto p-4 space-y-4">
+                <!-- JavaScriptで描画 -->
+            </div>
+        </section>
+    </main>
+
+    <!-- エクスポート形式の選択用モーダル -->
+    <div id="export-choice-modal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden border border-slate-200 animate-in fade-in duration-200">
+            <div class="bg-slate-800 text-white px-5 py-4 flex justify-between items-center font-bold">
+                <h3><i class="fa-solid fa-file-export text-indigo-400 mr-2"></i> 出力・エクスポート形式の選択</h3>
+                <button onclick="closeExportChoiceModal()" class="text-slate-400 hover:text-white transition"><i class="fa-solid fa-times text-xl"></i></button>
+            </div>
+            <div class="p-6 space-y-4">
+                <p class="text-sm text-slate-600">用途に合わせてご希望のデータフォーマットを選択してください。</p>
+                
+                <div class="grid grid-cols-1 gap-3">
+                    <!-- Excel (CSVダウンロード) -->
+                    <button onclick="downloadAsExcelCSV()" class="w-full flex items-center justify-between p-4 bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-200 rounded-xl text-left transition group">
+                        <div class="flex items-center gap-3">
+                            <span class="text-emerald-600 bg-white p-2.5 rounded-lg border border-emerald-100 shadow-sm"><i class="fa-solid fa-file-excel text-xl"></i></span>
+                            <div>
+                                <h4 class="font-bold text-emerald-900 text-sm">Excel で開く (.csvファイル出力)</h4>
+                                <p class="text-xs text-emerald-700 mt-0.5">Excelでそのまま編集できるShift-JIS/BOM対応 of CSV出力</p>
+                            </div>
+                        </div>
+                        <i class="fa-solid fa-chevron-right text-emerald-400 group-hover:translate-x-1 transition"></i>
+                    </button>
+
+                    <!-- Googleスプレッドシート貼付用 (TSVコピー) -->
+                    <button onclick="copyForGoogleSheets()" class="w-full flex items-center justify-between p-4 bg-green-50 hover:bg-green-100/80 border border-green-200 rounded-xl text-left transition group">
+                        <div class="flex items-center gap-3">
+                            <span class="text-green-600 bg-white p-2.5 rounded-lg border border-green-100 shadow-sm"><i class="fa-solid fa-file-invoice text-xl"></i></span>
+                            <div>
+                                <h4 class="font-bold text-green-900 text-sm">Google スプレッドシート用 (TSVコピー)</h4>
+                                <p class="text-xs text-green-700 mt-0.5">直接シートに貼り付けて綺麗に自動セル分割されるデータ形式</p>
+                            </div>
+                        </div>
+                        <i class="fa-solid fa-chevron-right text-green-400 group-hover:translate-x-1 transition"></i>
+                    </button>
+
+                    <!-- PDF出力 (印刷・自動保存) -->
+                    <button onclick="printAsPDF()" class="w-full flex items-center justify-between p-4 bg-rose-50 hover:bg-rose-100/80 border border-rose-200 rounded-xl text-left transition group">
+                        <div class="flex items-center gap-3">
+                            <span class="text-rose-600 bg-white p-2.5 rounded-lg border border-rose-100 shadow-sm"><i class="fa-solid fa-file-pdf text-xl"></i></span>
+                            <div>
+                                <h4 class="font-bold text-rose-900 text-sm">PDF として印刷・保存</h4>
+                                <p class="text-xs text-rose-700 mt-0.5">一覧表をA4横レイアウトのExcel風テーブルPDFとして直接生成し、ダウンロードします</p>
+                            </div>
+                        </div>
+                        <i class="fa-solid fa-chevron-right text-rose-400 group-hover:translate-x-1 transition"></i>
+                    </button>
+
+                    <!-- バックアップJSON形式 -->
+                    <button onclick="exportJSONData()" class="w-full flex items-center justify-between p-3 bg-slate-100 hover:bg-slate-200/80 border border-slate-200 rounded-xl text-left transition group">
+                        <div class="flex items-center gap-3">
+                            <span class="text-slate-600 bg-white p-1.5 rounded-lg border border-slate-200"><i class="fa-solid fa-code text-xs"></i></span>
+                            <div class="text-xs text-slate-700 font-bold">システムバックアップ出力 (JSON)</div>
+                        </div>
+                        <i class="fa-solid fa-chevron-right text-slate-400 group-hover:translate-x-1 transition"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="p-4 bg-slate-50 border-t flex justify-end">
+                <button onclick="closeExportChoiceModal()" class="px-5 py-2.5 bg-slate-200 hover:bg-slate-300 rounded-lg text-xs font-bold transition">キャンセル</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 通常モーダル：共有用 / インポート / ログイン用 -->
+    <div id="modal-overlay" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden border border-slate-200 animate-in fade-in duration-200">
+            <div class="bg-slate-800 text-white px-5 py-4 flex justify-between items-center font-bold">
+                <h3 id="modal-title">データ操作</h3>
+                <button onclick="closeModal()" class="text-slate-400 hover:text-white transition"><i class="fa-solid fa-times text-xl"></i></button>
+            </div>
+            
+            <div class="p-6">
+                <!-- パスワード入力コンテナ -->
+                <div id="modal-login-container" class="hidden mb-4 space-y-3">
+                    <p class="text-sm text-slate-600">管理者に切り替えるにはパスワードを入力してください。</p>
+                    <div class="relative">
+                        <i class="fa-solid fa-key absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                        <input type="password" id="admin-password" placeholder="パスワードを入力 (初期値: admin)" class="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
+                    </div>
+                    <p class="text-[11px] text-amber-600 font-bold bg-amber-50 p-2 rounded border border-amber-200"><i class="fa-solid fa-triangle-exclamation"></i> 管理用簡易パスワードは「<b>admin</b>」に設定されています。</p>
+                </div>
+
+                <!-- 通常のテキストエリア -->
+                <textarea id="modal-textarea" rows="12" class="w-full border border-slate-300 rounded-xl p-4 font-mono text-[11px] focus:ring-2 focus:ring-indigo-500 outline-none bg-slate-50 shadow-inner" placeholder="JSONデータを入力..."></textarea>
+                
+                <div class="mt-5 flex justify-end gap-3">
+                    <button onclick="closeModal()" class="px-5 py-2.5 bg-slate-200 text-slate-700 rounded-lg font-bold text-sm hover:bg-slate-300 transition">閉じる</button>
+                    <button id="modal-action-btn" class="px-6 py-2.5 bg-indigo-600 text-white rounded-lg font-bold text-sm hover:bg-indigo-700 shadow-md transition">実行</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- トースト通知用コンテナ -->
+    <div id="toast-container" class="fixed bottom-5 right-5 z-[200] pointer-events-none space-y-2"></div>
+
+    <script>
+        // --- 状態管理 ---
+        let items = [];
+        let editTargetId = null;
+        let isAdminMode = false; // 管理者モードフラグ
+        
+        // 複数作業予定者選択の一時状態
+        let selectingCardId = null; 
+        let selectedWorkerIndices = new Set(); 
+
+        // --- ドキュメントタイプのアイコンマップ ---
+        const docIconMap = {
+            excel: { icon: 'fa-file-excel', color: 'text-emerald-600 bg-emerald-50 border-emerald-200 hover:bg-emerald-100', label: 'Excel資料' },
+            spreadsheet: { icon: 'fa-file-invoice', color: 'text-green-600 bg-green-50 border-green-200 hover:bg-green-100', label: 'スプレッドシート' },
+            pdf: { icon: 'fa-file-pdf', color: 'text-rose-600 bg-rose-50 border-rose-200 hover:bg-rose-100', label: 'PDF資料' }
+        };
+
+        // --- 全エクセルデータの定義 ---
+        const excelFullData = [
+            { id: "1", area: "北海道", company: "ファイテックシステム㈱", zip: "004-0803", address: "北海道札幌市清田区里塚3条4丁目1-8", tel: "", remarks: "", docs: [], workers: [{ name: "西村光博", phone: "090-9515-5638", car: "" }] },
+            { id: "2", area: "北海道", company: "ヤブシタ電設（株）", zip: "060-0006", address: "北海道札幌市中央区北6条西23丁目1-12", tel: "", remarks: "", docs: [], workers: [
+                { name: "江崎　恒太", phone: "080-9055-6169", car: "" },
+                { name: "澤山尚史", phone: "070-4799-7500", car: "" },
+                { name: "菊原太一郎", phone: "080-5107-4707", car: "" },
+                { name: "田村　隆史", phone: "080-6067-3593", car: "" }
+            ]},
+            { id: "3", area: "北海道", company: "八晃電気(株)", zip: "060-0031", address: "北海道札幌市中央区北一条東７丁目８０番１４", tel: "011-207-0688", remarks: "", docs: [], workers: [
+                { name: "柏原良明", phone: "090-8373-6386", car: "ダイハツ ハイゼット 札幌 480さ9796" },
+                { name: "竹谷具樹", phone: "090-5224-8482", car: "トヨタレジアスエース 札幌400み1272 スーパーGL" }
+            ]},
+            { id: "4", area: "青森", company: "有限会社 相内電気工事", zip: "038-0021", address: "青森県青森市安田字近野1-268", tel: "017-761-2086", remarks: "", docs: [], workers: [{ name: "對馬 しのぶ", phone: "090-2020-7902", car: "" }] },
+            { id: "5", area: "青森", company: "大和電業", zip: "039-1101", address: "青森県八户市尻内町字追分41-2", tel: "0178-27-4411", remarks: "", docs: [], workers: [
+                { name: "大石はじめ", phone: "090-6258-0887", car: "" },
+                { name: "大石亮太", phone: "080-5730-1404", car: "" }
+            ]},
+            { id: "6", area: "宮城", company: "㈱エンシン電気", zip: "986ｰ2266", address: "宮城県牡鹿郡女川町大原10-5", tel: "", remarks: "", docs: [], workers: [{ name: "遠藤", phone: "080-5226-9360", car: "" }] },
+            { id: "7", area: "宮城", company: "合名会社 ワタナベ", zip: "989-4102", address: "宮城県大崎市鹿島台木間塚字小谷地121-5", tel: "", remarks: "", docs: [], workers: [
+                { name: "庄子博明", phone: "090-1937-0513", car: "ステップワゴン 宮城301 め 32" },
+                { name: "円谷貴浩", phone: "080-3326-8677", car: "" }
+            ]},
+            { id: "8", area: "新潟", company: "㈱Ｂ ｗｏｒｋｓ", zip: "950ｰ0954", address: "新潟県新潟市中央区美咲町1-7-55 ソフィアミサキ1-F", tel: "", remarks: "髙橋拓也 090-5750-7181 / 横田和之 080-5174-3850", docs: [], workers: [
+                { name: "近藤", phone: "090-5536-8849", car: "" },
+                { name: "髙橋拓也", phone: "090-5750-7181", car: "ハイエース 長岡 400つ98-14" },
+                { name: "横田和之", phone: "080-5174-3850", car: "サクシード 新潟 400ぬ96-04" },
+                { name: "阿部貴也", phone: "", car: "ハイエース 新潟400 ね 54-22" }
+            ]},
+            { id: "9", area: "栃木", company: "Rekoh", zip: "322-0027", address: "栃木県鹿沼市貝島町5029-2", tel: "", docs: [], workers: [
+                { name: "秋山泰幸", phone: "090-7413-8474", car: "N-BOX 宇都宮 581 て96-30" },
+                { name: "川辺 芳宏", phone: "", car: "" }
+            ]},
+            { id: "10", area: "郡山", company: "岡部電設株式会社", zip: "963-8833", address: "福島県郡山市香久池二丁目6番15号", tel: "024-922-8020", remarks: "", docs: [], workers: [{ name: "佐藤", phone: "024-922-8020", car: "" }] },
+            { id: "11", area: "群馬", company: "㈱石電", zip: "963ｰ8833", address: "福島県郡山市香久池１丁目１７−１６", tel: "027-223-2588", remarks: "", docs: [], workers: [{ name: "石原光春", phone: "090-3148-8153", car: "ハイエース 群馬400 な 3780" }] },
+            { id: "12", area: "埼玉", company: "鳶 宇田川", zip: "340-0802", address: "埼玉県八潮市鶴ヶ曽根237-5", tel: "048-996-3847", remarks: "", docs: [], workers: [{ name: "宇田川 貴志郎", phone: "090-2248-4652", car: "ダイハツ ハイゼット 春日部430 も 65" }] },
+            { id: "13", area: "埼玉", company: "カトウ設備", zip: "335-0026", address: "埼玉県戸田市新曽南4-5-6-411", tel: "", remarks: "", docs: [], workers: [{ name: "加藤謙吾", phone: "080-4596-0206", car: "日産バネット NV200 大宮430 そ1704" }] },
+            { id: "14", area: "埼玉", company: "STS", zip: "333ｰ0807", address: "埼玉県川口市長蔵3-17-1", tel: "", remarks: "", docs: [], workers: [{ name: "高橋", phone: "", car: "" }] },
+            { id: "15", area: "埼玉", company: "大片電工", zip: "350ｰ1151", address: "埼玉県川越市今福253-8", tel: "", remarks: "", docs: [], workers: [{ name: "大片 譲", phone: "090-7171-6351", car: "" }] },
+            { id: "16", area: "東京", company: "T.D工業", zip: "144-0035", address: "東京都大田区南蒲田2‐13‐10ヴィラヒロキ303", tel: "03-6337-6182", remarks: "", docs: [], workers: [{ name: "高江洲 博之", phone: "080-7947ｰ7535", car: "ハイエース 品川460 に 712" }] },
+            { id: "17", area: "東京", company: "株式会社 金沢電気設備", zip: "141-0033", address: "東京都品川区西品川2-6-4", tel: "", remarks: "", docs: [], workers: [{ name: "岩崎 守之介", phone: "090-9593-6820", car: "" }] },
+            { id: "18", area: "横浜", company: "エコテクソリューション㈱", zip: "226-0004", address: "神奈川県横浜市緑区鴨居町805-3", tel: "", remarks: "", docs: [], workers: [{ name: "三富俊和", phone: "090-4099-4616", car: "キャラバン 品川 400 ふ 6366" }] },
+            { id: "19", area: "神奈川", company: "㈲筑波電器", zip: "221ｰ0042", address: "神奈川県横浜市神奈川区浦島町371", tel: "", remarks: "", docs: [], workers: [
+                { name: "豊崎光治", phone: "090-3047-9613", car: "" },
+                { name: "豊崎康平", phone: "", car: "" }
+            ]},
+            { id: "20", area: "神奈川", company: "（株）アローウエッジ", zip: "252-1114", address: "神奈川県綾瀬市上土棚南２丁目９−４１", tel: "0467-53-9123", remarks: "", docs: [], workers: [{ name: "山本", phone: "0467-53-9123", car: "" }] },
+            { id: "21", area: "富山", company: "㈱ビーマックス", zip: "930ｰ0816", address: "富山県富山市上赤江町2-2-67", tel: "", remarks: "", docs: [], workers: [
+                { name: "中村", phone: "080-2956-5510", car: "" },
+                { name: "中森康浩", phone: "", car: "" }
+            ]},
+            { id: "22", area: "石川", company: "（株）e-アシスト", zip: "924-0022", address: "石川県白山市相木町532番地6", tel: "", remarks: "サイズ:長さ4965×幅1695×高さ2100 積載量850kg", docs: [], workers: [
+                { name: "堀 泰幸", phone: "080-4251-1410", car: "石川430 ち ･･26 白ハイエース" },
+                { name: "永島 裕史", phone: "080-4254-1410", car: "石川400 ち 3109 ハイエース" }
+            ]},
+            { id: "23", area: "山梨", company: "㈱小松電工", zip: "400ｰ0027", address: "山梨県甲府市富士見2-8-21", tel: "", remarks: "", docs: [], workers: [{ name: "小松秀夫", phone: "090-3003-6254", car: "" }] },
+            { id: "24", area: "長野", company: "赤羽工芸㈱", zip: "399-4601", address: "長野県上伊那郡箕輪町中箕輪2668", tel: "", remarks: "複数名車両登録あり", docs: [], workers: [
+                { name: "赤羽", phone: "090-3403-6570", car: "" },
+                { name: "鈴木 聡志", phone: "080-1231-6625", car: "①松本401な・5（ハイエース）②キャラバン松本400た6340" },
+                { name: "高森 元気", phone: "090-6087-7820", car: "松本401 な・・5 ハイエース" },
+                { name: "髙森 優気", phone: "070-2014-4015", car: "トヨタ ハイエース 松本401 な0005" }
+            ]},
+            { id: "25", area: "静岡", company: "有限会社サンタ電工", zip: "431-0211", address: "静岡県浜松市西区舞阪2734-15", tel: "", remarks: "", docs: [], workers: [{ name: "内田善丈", phone: "090-3250-6031", car: "浜松 430 さ 8192" }] },
+            { id: "26", area: "愛知", company: "石井電工", zip: "497ｰ0005", address: "愛知県あま市七宝町伊福河原171-3", tel: "", remarks: "", docs: [], workers: [
+                { name: "石井幹雄", phone: "090-3385-6355", car: "ハイエース名古屋433さ310" },
+                { name: "佐藤武司", phone: "090-3303-2155", car: "ライトエース名古屋430の 312" }
+            ]},
+            { id: "27", area: "愛知", company: "㈲ケンデン", zip: "444ｰ0908", address: "岡崎市橋目町字久々見1-1", tel: "", remarks: "", docs: [], workers: [{ name: "田渕哲次", phone: "090-3256-8159", car: "" }] },
+            { id: "28", area: "大阪", company: "㈱上電", zip: "578-0944", address: "大阪府東大阪市若江西新町5-1-11", tel: "06-6730-9080", remarks: "", docs: [], workers: [
+                { name: "上村孝弘", phone: "090-3941-5790", car: "トヨタ ダイナ 大阪400 ひ 6248" },
+                { name: "清水敦夫", phone: "090-8195-9595", car: "ハイエース 大阪４３１ て27" },
+                { name: "高岡康弘", phone: "090-3495-8949", car: "" },
+                { name: "下川竜之介", phone: "080-1494-0415", car: "" }
+            ]},
+            { id: "29", area: "大阪", company: "株式会社YUITEC", zip: "590ｰ0127", address: "大阪府堺市南区富蔵596番地5", tel: "072-260-4604", remarks: "", docs: [], workers: [
+                { name: "吉本", phone: "072-260-4604", car: "" },
+                { name: "北尾さん", phone: "", car: "" },
+                { name: "西井孝季", phone: "", car: "" },
+                { name: "山内健之", phone: "", car: "" }
+            ]},
+            { id: "30", area: "兵庫", company: "(株)ジャパンライティング", zip: "650ｰ0025", address: "神戸市中央区相生町4丁目8-5", tel: "078-361-1001", remarks: "", docs: [], workers: [{ name: "福井正博", phone: "078-361-1001", car: "" }] },
+            { id: "31", area: "香川", company: "クマノ㈱", zip: "761-0444", address: "香川県高松市池田町483番地1", tel: "087-899-8097", remarks: "", docs: [], workers: [
+                { name: "熊野英治", phone: "090-1320-9660", car: "" },
+                { name: "中津悠輔", phone: "080-3924-5406", car: "" },
+                { name: "伊賀海斗", phone: "090-1324-0515", car: "" }
+            ]},
+            { id: "32", area: "福岡", company: "美翔電設", zip: "816-0807", address: "福岡県春日市宝町4丁目32-1 ドミール宝町 102号", tel: "", remarks: "", docs: [], workers: [{ name: "村井喜美", phone: "090-9721-5474", car: "ハイエース 福岡400 み 86 13" }] },
+            { id: "33", area: "宮崎", company: "株式会社RIZE / SPEC", zip: "889-1601", address: "宮崎県宮崎市清武町木原3599-7", tel: "", remarks: "RIZE山田 090-5735-2155, SPEC宮崎 090-3730-2329", docs: [], workers: [
+                { name: "山田 直幸", phone: "090-5735-2155", car: "ハイエース白 宮崎430 ぬ 8358 全長:4.7m/幅:1.7m/高:2.0m" },
+                { name: "宮崎 嘉春", phone: "090-3730-2329", car: "キャラバン 久留米400 81-53" },
+                { name: "宮崎 一路", phone: "090-7537-5481", car: "" }
+            ]},
+            { id: "34", area: "福岡", company: "株式会社FUJIC", zip: "812-0041", address: "福岡県博多区吉塚4-3-34", tel: "092-621-0234", remarks: "", docs: [], workers: [
+                { name: "宮崎 藤雄", phone: "080-5805-1462", car: "" },
+                { name: "村上伸也", phone: "080-2727-2332", car: "" },
+                { name: "河上秀晃", phone: "080-9248-5857", car: "" },
+                { name: "古賀たつや", phone: "090-8260-8803", car: "" },
+                { name: "日高隼人", phone: "080-5265-8890", car: "" }
+            ]}
+        ];
+
+        // --- 初期化 ---
+        window.onload = () => {
+            const saved = localStorage.getItem('worker_vehicle_full_db_v2');
+            if (saved) {
+                items = JSON.parse(saved);
+                items.forEach(item => {
+                    if (item.isPending === undefined) item.isPending = false;
+                    if (!item.docs) item.docs = [];
+                });
+            } else {
+                items = excelFullData.map(item => ({ ...item, isPending: false, docs: item.docs || [] }));
+                save();
+            }
+            addWorkerField();
+            addDocField();
+            applyModeUI(); 
+            renderList();
+        };
+
+        // --- フォームの開閉 (アコーディオン) ---
+        function toggleFormSidebar(forceState) {
+            const sidebar = document.getElementById('form-sidebar');
+            const btnText = document.getElementById('btn-toggle-form-text');
+            const isOpen = !sidebar.classList.contains('hidden');
+            
+            const nextState = forceState !== undefined ? forceState : !isOpen;
+
+            if (nextState) {
+                sidebar.classList.remove('hidden');
+                btnText.textContent = "登録フォームを閉じる";
+            } else {
+                sidebar.classList.add('hidden');
+                btnText.textContent = "新規登録フォームを開く";
+            }
+        }
+
+        // --- 管理者ログインモーダルの制御 ---
+        function toggleAuthMode() {
+            if (isAdminMode) {
+                isAdminMode = false;
+                toggleFormSidebar(false); 
+                applyModeUI();
+                renderList();
+                showToast("閲覧モードに戻りました。");
+            } else {
+                openLoginModal();
+            }
+        }
+
+        // ログイン窓を開く
+        function openLoginModal() {
+            document.getElementById('modal-title').textContent = "管理者ログイン";
+            document.getElementById('modal-textarea').classList.add('hidden');
+            document.getElementById('modal-login-container').classList.remove('hidden');
+            document.getElementById('modal-overlay').classList.remove('hidden');
+            document.getElementById('admin-password').value = "";
+            
+            const btn = document.getElementById('modal-action-btn');
+            btn.textContent = "ログイン";
+            btn.onclick = verifyPassword;
+        }
+
+        function verifyPassword() {
+            const pass = document.getElementById('admin-password').value;
+            if (pass === "admin") {
+                isAdminMode = true;
+                closeModal();
+                applyModeUI();
+                renderList();
+                showToast("管理者モードでログインしました。編集・承認・高度出力機能が使えます。");
+            } else {
+                alert("パスワードが正しくありません。(初期値: admin)");
+            }
+        }
+
+        function applyModeUI() {
+            const modeText = document.getElementById('mode-text');
+            const modeDot = document.getElementById('mode-dot');
+            const btnToggleForm = document.getElementById('btn-toggle-form');
+            const authBtnText = document.getElementById('auth-btn-text');
+            const authIcon = document.getElementById('auth-icon');
+            
+            const btnImport = document.getElementById('btn-import');
+            const btnReset = document.getElementById('btn-reset');
+
+            btnToggleForm.classList.remove('hidden');
+
+            if (isAdminMode) {
+                modeText.textContent = "管理者モード (全操作可)";
+                modeDot.className = "w-2 h-2 rounded-full bg-rose-500 animate-pulse";
+                btnImport.classList.remove('hidden');
+                btnReset.classList.remove('hidden');
+                authBtnText.textContent = "ログアウト";
+                authIcon.className = "fa-solid fa-unlock";
+            } else {
+                modeText.textContent = "閲覧モード (共有中)";
+                modeDot.className = "w-2 h-2 rounded-full bg-emerald-400 animate-pulse";
+                btnImport.classList.add('hidden');
+                btnReset.classList.add('hidden');
+                authBtnText.textContent = "管理者ログイン";
+                authIcon.className = "fa-solid fa-lock";
+            }
+        }
+
+        // --- 検索のクリア制御 ---
+        function handleSearchInput() {
+            const input = document.getElementById('search-input');
+            const clearBtn = document.getElementById('btn-search-clear');
+            if (input.value.trim().length > 0) {
+                clearBtn.classList.remove('hidden');
+            } else {
+                clearBtn.classList.add('hidden');
+            }
+        }
+
+        // 検索クリア機能
+        function clearSearch() {
+            const input = document.getElementById('search-input');
+            const clearBtn = document.getElementById('btn-search-clear');
+            input.value = '';
+            clearBtn.classList.add('hidden');
+            renderList();
+            input.focus();
+        }
+
+        // --- トースト通知 ---
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `px-4 py-3 rounded-xl shadow-lg text-white font-bold text-xs flex items-center gap-2 transition-all duration-300 transform translate-y-4 opacity-0 pointer-events-auto ${
+                type === 'success' ? 'bg-indigo-600' : 'bg-amber-600'
+            }`;
+            toast.innerHTML = `<i class="fa-solid ${type === 'success' ? 'fa-circle-check' : 'fa-circle-exclamation'}"></i> <span>${message}</span>`;
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.classList.remove('translate-y-4', 'opacity-0');
+            }, 10);
+            
+            setTimeout(() => {
+                toast.classList.add('translate-y-4', 'opacity-0');
+                setTimeout(() => {
+                    toast.remove();
+                }, 300);
+            }, 3000);
+        }
+
+        // --- 関連資料(Excel, Spread, PDF)フィールドの動的追加 ---
+        function addDocField(data = {type: 'excel', name: '', url: ''}) {
+            const container = document.getElementById('doc-fields-container');
+            const div = document.createElement('div');
+            div.className = 'doc-input-group flex items-center gap-2 p-2 border border-emerald-100 rounded bg-white shadow-sm relative';
+            div.innerHTML = `
+                <select class="d-type bg-slate-100 text-xs p-1 rounded font-bold outline-none border border-slate-200">
+                    <option value="excel" ${data.type === 'excel' ? 'selected' : ''}>Excel</option>
+                    <option value="spreadsheet" ${data.type === 'spreadsheet' ? 'selected' : ''}>スプレッド</option>
+                    <option value="pdf" ${data.type === 'pdf' ? 'selected' : ''}>PDF</option>
+                </select>
+                <input type="text" placeholder="資料名" class="d-name flex-1 px-2 py-1 border border-slate-300 rounded text-xs outline-none" value="${data.name}">
+                <input type="text" placeholder="URL(リンク)" class="d-url flex-1 px-2 py-1 border border-slate-300 rounded text-xs outline-none" value="${data.url}">
+                <button type="button" onclick="this.parentElement.remove()" class="text-rose-500 hover:text-rose-700 text-xs px-1" title="削除">
+                    <i class="fa-solid fa-trash"></i>
+                </button>
+            `;
+            container.appendChild(div);
+        }
+
+        // --- 作業員フィールド追加 ---
+        function addWorkerField(data = {name:'', phone:'', car:''}) {
+            const container = document.getElementById('worker-fields-container');
+            const div = document.createElement('div');
+            div.className = 'worker-input-group p-3 border border-slate-200 rounded-lg bg-white shadow-sm space-y-2 relative animate-in fade-in duration-150';
+            div.innerHTML = `
+                <button type="button" onclick="this.parentElement.remove()" class="absolute -top-1.5 -right-1.5 bg-rose-500 text-white w-6 h-6 rounded-full text-[10px] flex items-center justify-center hover:bg-rose-600 shadow-sm border border-white"><i class="fa-solid fa-times"></i></button>
+                <div class="grid grid-cols-2 gap-2">
+                    <input type="text" placeholder="名前" class="w-name w-full px-2 py-1.5 border border-slate-300 rounded text-xs outline-none focus:border-indigo-500 transition" value="${data.name}">
+                    <input type="tel" placeholder="携帯" class="w-phone w-full px-2 py-1.5 border border-slate-300 rounded text-xs outline-none focus:border-indigo-500 transition" value="${data.phone}">
+                </div>
+                <input type="text" placeholder="車両情報（車種、ナンバー等）" class="w-car w-full px-2 py-1.5 border border-slate-300 rounded text-xs outline-none focus:border-indigo-500 transition" value="${data.car}">
+            `;
+            container.appendChild(div);
+        }
+
+        // --- フォーム送信(新規・編集) ---
+        function handleFormSubmit(e) {
+            e.preventDefault();
+
+            // 関連資料データのパース
+            const docs = [];
+            document.querySelectorAll('.doc-input-group').forEach(group => {
+                const type = group.querySelector('.d-type').value;
+                const name = group.querySelector('.d-name').value.trim();
+                const url = group.querySelector('.d-url').value.trim();
+                if (name) {
+                    docs.push({ type, name, url: url || '#' });
+                }
+            });
+
+            // 作業員データのパース
+            const workers = [];
+            document.querySelectorAll('.worker-input-group').forEach(group => {
+                const name = group.querySelector('.w-name').value.trim();
+                const phone = group.querySelector('.w-phone').value.trim();
+                const car = group.querySelector('.w-car').value.trim();
+                if (name || phone || car) workers.push({ name, phone, car });
+            });
+
+            const isPendingStatus = !isAdminMode;
+
+            const newItem = {
+                id: editTargetId || Date.now().toString(),
+                area: document.getElementById('area').value.trim(),
+                company: document.getElementById('company-name').value.trim(),
+                zip: document.getElementById('zipcode').value.trim(),
+                address: document.getElementById('address').value.trim(),
+                tel: document.getElementById('landline').value.trim(),
+                remarks: document.getElementById('remarks').value.trim(),
+                docs: docs,
+                workers: workers,
+                isPending: isPendingStatus
+            };
+
+            if (editTargetId) {
+                const idx = items.findIndex(i => i.id === editTargetId);
+                items[idx] = newItem;
+            } else {
+                items.unshift(newItem);
+            }
+            save();
+            resetForm();
+            toggleFormSidebar(false); 
+            renderList();
+
+            if (isPendingStatus) {
+                showToast('保存しました（管理者の承認後に最終反映されます）', 'warning');
+            } else {
+                showToast('データを保存しました');
+            }
+        }
+
+        function resetForm() {
+            editTargetId = null;
+            document.getElementById('main-form').reset();
+            document.getElementById('worker-fields-container').innerHTML = '';
+            document.getElementById('doc-fields-container').innerHTML = '';
+            document.getElementById('form-title').innerHTML = '<i class="fa-solid fa-pen-to-square text-indigo-600"></i> 情報登録・編集';
+            document.getElementById('submit-btn').querySelector('span').textContent = '保存する';
+            document.getElementById('cancel-edit').classList.add('hidden');
+            addWorkerField();
+            addDocField();
+        }
+
+        // --- 作業選択モードの開始/終了 ---
+        function startSelectionMode(id) {
+            selectingCardId = id;
+            selectedWorkerIndices.clear();
+            renderList();
+            showToast("作業予定担当者を選択（チェック）して「選択完了」ボタンを押してください。", "warning");
+        }
+
+        function cancelSelectionMode() {
+            selectingCardId = null;
+            selectedWorkerIndices.clear();
+            renderList();
+        }
+
+        function toggleWorkerSelection(index) {
+            if (selectedWorkerIndices.has(index)) {
+                selectedWorkerIndices.delete(index);
+            } else {
+                selectedWorkerIndices.add(index);
+            }
+            renderList(); 
+        }
+
+        // --- 車両情報パース処理 ---
+        function parseCarText(carStr) {
+            if (!carStr) return { type: '---', number: '---' };
+            const regionRegex = /(札幌|函館|旭川|室蘭|釧路|帯広|北見|青森|八戸|弘前|岩手|盛岡|宮城|仙台|秋田|山形|庄内|福島|いわき|会津|郡山|白河|水戸|土浦|つくば|宇都宮|とちぎ|那須|群馬|前橋|高崎|埼玉|大宮|所沢|熊谷|春日部|川越|川口|越谷|千葉|成田|習志野|袖ヶ浦|野田|柏|市原|市川|松戸|船橋|東京|品川|世田谷|練馬|杉並|板橋|足立|江東|葛飾|八王子|多摩|国分寺|横浜|川崎|相模|湘南|平塚|小打原|小田原|横須賀|鎌倉|新潟|長岡|上越|富山|石川|金沢|福井|山梨|富士山|長野|松本|諏訪|岐阜|飛騨|静岡|沼津|浜松|伊豆|豊橋|三河|名古屋|尾張小牧|一宮|春日井|豊田|岡崎|四日市|三重|伊勢志摩|滋賀|京都|大阪|なにわ|和泉|堺|奈良|和歌山|神戸|姫路|豊岡|鳥取|島根|出雲|岡山|倉敷|広島|福山|山口|下関|徳島|香川|高松|愛媛|高知|福岡|北九州|久留米|筑豊|佐賀|長崎|佐世保|熊本|大分|宮崎|鹿児島|奄美|沖縄)\s*\d{2,3}\s*[あ-んぁ-ん]?\s*[\d・-ー]{1,4}/;
+            
+            const match = carStr.match(regionRegex);
+            if (match) {
+                const number = match[0].trim();
+                let type = carStr.replace(number, '').replace(/[\s()（）]/g, ' ').trim();
+                type = type.replace(/^①|②/g, '').trim();
+                return { type: type || '---', number: number };
+            }
+            
+            const parts = carStr.split(/\s+/);
+            if (parts.length > 1) {
+                return {
+                    type: parts.slice(0, parts.length - 1).join(' '),
+                    number: parts[parts.length - 1]
+                };
+            }
+            
+            return { type: carStr, number: '---' };
+        }
+
+        // --- 一覧カードレンダリング ---
+        function renderList() {
+            const container = document.getElementById('data-list');
+            const search = document.getElementById('search-input').value.toLowerCase();
+            container.innerHTML = '';
+
+            const filtered = items.filter(item => {
+                const docsText = (item.docs || []).map(d => d.name).join(' ');
+                const text = [
+                    item.area, item.company, item.address, item.remarks, docsText,
+                    ...item.workers.map(w => (w.name || '') + (w.phone || '') + (w.car || ''))
+                ].join(' ').toLowerCase();
+                return text.includes(search);
+            });
+
+            document.getElementById('count-company').textContent = filtered.length;
+            let totalW = 0;
+            filtered.forEach(i => {
+                // 有効な作業員のみカウント
+                const validWorkers = i.workers.filter(w => (w.name && w.name.trim()) || (w.phone && w.phone.trim()) || (w.car && w.car.trim()));
+                totalW += validWorkers.length;
+            });
+            document.getElementById('count-worker').textContent = totalW;
+
+            filtered.forEach(item => {
+                const card = document.createElement('div');
+                const isThisCardSelecting = (selectingCardId === item.id);
+                
+                if (item.isPending) {
+                    card.className = 'data-card bg-white rounded-xl shadow-md border-2 border-amber-400 overflow-hidden ring-4 ring-amber-400/15 animate-[pulse_3s_infinite]';
+                } else if (isThisCardSelecting) {
+                    card.className = 'data-card bg-indigo-50/20 rounded-xl shadow-md border-2 border-indigo-500 overflow-hidden ring-4 ring-indigo-500/10 transition-all';
+                } else {
+                    card.className = 'data-card bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden';
+                }
+                
+                // 名前・携帯・車両のいずれかが入力されている有効な作業員のみを抽出して描画
+                const validWorkers = item.workers.filter(w => 
+                    (w.name && w.name.trim()) || 
+                    (w.phone && w.phone.trim()) || 
+                    (w.car && w.car.trim())
+                );
+
+                // 作業員リスト（最初の人は背景黄色＋バッジ表示）
+                const workersHtml = validWorkers.map((w, idx) => {
+                    const isRepresentative = (idx === 0);
+                    let bgClass = isRepresentative 
+                        ? 'p-3 bg-amber-50/60 border-2 border-amber-200/80 rounded-lg relative' 
+                        : 'p-3 bg-slate-50 border border-slate-200 rounded-lg';
+                    
+                    if (isThisCardSelecting) {
+                        bgClass += ' cursor-pointer hover:border-indigo-400 transition-all';
+                    }
+
+                    const repBadge = isRepresentative 
+                        ? `<span class="absolute top-2 right-2 bg-amber-100 text-amber-800 border border-amber-300 text-[9px] px-1.5 py-0.5 rounded-md font-bold flex items-center gap-1"><i class="fa-solid fa-star text-amber-500"></i> 代表担当者</span>`
+                        : '';
+
+                    let checkboxHtml = '';
+                    if (isThisCardSelecting) {
+                        const isChecked = selectedWorkerIndices.has(idx);
+                        checkboxHtml = `
+                            <div class="flex items-center justify-center shrink-0 mr-2.5">
+                                <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleWorkerSelection(${idx})" class="w-5 h-5 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer">
+                            </div>
+                        `;
+                    }
+
+                    return `
+                        <div class="${bgClass}" ${isThisCardSelecting ? `onclick="toggleWorkerSelection(${idx}); event.stopPropagation();"` : ''}>
+                            <div class="flex items-start">
+                                ${checkboxHtml}
+                                <div class="flex-1">
+                                    ${repBadge}
+                                    <div class="flex flex-wrap items-center gap-2 mb-1.5 pr-14">
+                                        <span class="font-bold text-slate-800 text-sm">${w.name || '---'}</span>
+                                        ${w.phone ? `<a href="tel:${w.phone}" class="text-indigo-600 text-[11px] font-bold bg-white border border-indigo-200 px-2 py-0.5 rounded-full hover:bg-indigo-600 hover:text-white transition flex items-center gap-1" onclick="event.stopPropagation();"><i class="fa-solid fa-phone-flip text-[10px]"></i> ${w.phone}</a>` : ''}
+                                    </div>
+                                    ${w.car ? `<div class="text-slate-600 text-xs flex items-start gap-1.5"><i class="fa-solid fa-truck text-slate-400 mt-0.5"></i><span>${w.car}</span></div>` : ''}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                // 関連ドキュメントの表示HTML
+                let docsHtml = '';
+                if (item.docs && item.docs.length > 0) {
+                    docsHtml = `
+                        <div class="mt-2 flex flex-wrap gap-2 pt-2 border-t border-slate-100">
+                            ${item.docs.map(doc => {
+                                const style = docIconMap[doc.type] || docIconMap.excel;
+                                return `
+                                    <a href="${doc.url}" onclick="if('${doc.url}'==='#') { event.preventDefault(); alert('デモリンクです。実際の環境では設定したファイルが開きます。'); }" class="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md border font-bold transition shadow-sm ${style.color}" title="${doc.name}を開く">
+                                        <i class="fa-solid ${style.icon}"></i>
+                                        <span>${doc.name}</span>
+                                    </a>
+                                `;
+                            }).join('')}
+                        </div>
+                    `;
+                }
+
+                // アクションボタン（作業者選択、コピー、編集など）
+                let actionsHtml = `<div class="flex flex-row md:flex-col gap-2 shrink-0 w-full md:w-auto">`;
+
+                if (isThisCardSelecting) {
+                    const hasSelected = selectedWorkerIndices.size > 0;
+                    if (hasSelected) {
+                        actionsHtml += `
+                            <button onclick="copySelectedWorkersMail('${item.id}')" class="flex-1 px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition flex items-center justify-center gap-2 shadow-md animate-bounce">
+                                <i class="fa-solid fa-check"></i> 選択完了 (コピー)
+                            </button>
+                        `;
+                    }
+                    actionsHtml += `
+                        <button onclick="cancelSelectionMode()" class="flex-1 px-4 py-2 bg-slate-200 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-300 transition flex items-center justify-center gap-2">
+                            キャンセル
+                        </button>
+                    `;
+                } else {
+                    actionsHtml += `
+                        <button onclick="copyMailFormat('${item.id}')" class="flex-1 px-4 py-2 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-lg border border-emerald-200 hover:bg-emerald-600 hover:text-white hover:border-emerald-600 transition flex items-center justify-center gap-2 shadow-sm" title="指定のフォーマットでクリップボードへ保存します">
+                            <i class="fa-regular fa-copy"></i> メールへコピペ
+                        </button>
+                        <button onclick="startSelectionMode('${item.id}')" class="flex-1 px-4 py-2 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-lg border border-indigo-200 hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition flex items-center justify-center gap-2 shadow-sm" title="行く人を個別に選んでメールを作成します">
+                            <i class="fa-solid fa-user-check"></i> 作業者を選択
+                        </button>
+                        <button onclick="editItem('${item.id}')" class="flex-1 px-4 py-2 bg-slate-50 text-slate-700 text-xs font-bold rounded-lg border border-slate-200 hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition flex items-center justify-center gap-2 shadow-sm">
+                            <i class="fa-solid fa-edit"></i> 編集
+                        </button>
+                    `;
+                }
+
+                if (isAdminMode) {
+                    if (item.isPending) {
+                        actionsHtml += `
+                            <button onclick="approveItem('${item.id}')" class="flex-1 px-4 py-2 bg-amber-500 text-white text-xs font-bold rounded-lg hover:bg-amber-600 transition flex items-center justify-center gap-2 shadow-md">
+                                <i class="fa-solid fa-circle-check"></i> 承認する
+                            </button>
+                        `;
+                    }
+                    actionsHtml += `
+                        <button onclick="deleteItem('${item.id}')" class="flex-1 px-4 py-2 bg-rose-50 text-rose-700 text-xs font-bold rounded-lg border border-rose-100 hover:bg-rose-600 hover:text-white hover:border-rose-600 transition flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-trash"></i> 削除
+                        </button>
+                    `;
+                }
+
+                actionsHtml += `</div>`;
+
+                const pendingBadge = item.isPending 
+                    ? `<span class="bg-amber-100 text-amber-800 border border-amber-300 text-[10px] px-2 py-0.5 rounded-md font-bold flex items-center gap-1 animate-pulse"><i class="fa-solid fa-triangle-exclamation text-amber-600"></i> 未承認の追加・変更</span>`
+                    : '';
+
+                card.innerHTML = `
+                    <div class="p-4 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-r from-white to-slate-50/30">
+                        <div class="flex-1">
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="bg-indigo-100 text-indigo-700 text-[10px] px-2 py-0.5 rounded-md font-bold border border-indigo-200">${item.area || '未設定'}</span>
+                                <span class="text-slate-400 text-[10px] font-mono">ID: ${item.id}</span>
+                                ${pendingBadge}
+                            </div>
+                            <h4 class="text-lg font-bold text-slate-900 tracking-tight">${item.company}</h4>
+                            <div class="mt-2 space-y-1 text-xs text-slate-500">
+                                <div class="flex items-start gap-2"><i class="fa-solid fa-map-location-dot mt-0.5 w-3 text-slate-400"></i><span>${item.zip ? '〒'+item.zip : ''} ${item.address}</span></div>
+                                ${item.tel ? `<div class="flex items-center gap-2"><i class="fa-solid fa-phone w-3 text-slate-400"></i> ${item.tel}</div>` : ''}
+                            </div>
+                            ${docsHtml}
+                        </div>
+                        ${actionsHtml}
+                    </div>
+                    <div class="p-4 space-y-3">
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            ${workersHtml}
+                        </div>
+                        ${item.remarks ? `<div class="mt-2 p-3 bg-amber-50/50 rounded-lg border border-amber-100 text-[11px] text-amber-800 leading-relaxed"><i class="fa-solid fa-circle-info mr-1 text-amber-600"></i>${item.remarks.replace(/\n/g, '<br>')}</div>` : ''}
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        // --- 複数選択された担当者情報のコピペ用作成 ---
+        function copySelectedWorkersMail(id) {
+            const item = items.find(i => i.id === id);
+            if (!item) return;
+
+            const repWorker = item.workers && item.workers.length > 0 ? item.workers[0] : null;
+            const repName = repWorker && repWorker.name ? `${repWorker.name}様宛` : '御中';
+            const telNo = item.tel ? item.tel : (repWorker && repWorker.phone ? repWorker.phone : '---');
+
+            let selectedWorkersText = '';
+            let count = 1;
+            
+            item.workers.forEach((w, idx) => {
+                if (selectedWorkerIndices.has(idx)) {
+                    selectedWorkersText += `・担当者${count}:${w.name || '---'}\n　連絡先:${w.phone || '---'}\n\n`;
+                    count++;
+                }
+            });
+
+            let carType = '---';
+            let carNumber = '---';
+            if (repWorker && repWorker.car) {
+                const parsedCar = parseCarText(repWorker.car);
+                carType = parsedCar.type;
+                carNumber = parsedCar.number;
+            }
+
+            let sizeStr = '---';
+            if (item.remarks) {
+                const sizeMatch = item.remarks.match(/(サイズ[:：\s]?長さ[^：\n]*|長さ[^：\n]*kg|幅[^：\n]*高さ[^：\n]*|積載量[^：\n]*kg)/);
+                if (sizeMatch) {
+                    sizeStr = sizeMatch[0].trim();
+                } else if (item.remarks.includes('長さ') || item.remarks.includes('幅') || item.remarks.includes('積載')) {
+                    sizeStr = item.remarks;
+                }
+            }
+
+            const formattedText = `■納品先
+〒${item.zip || '---'}
+${item.address || '---'}
+${item.company} ${repName}
+${telNo}
+
+■作業予定担当者情報
+${selectedWorkersText.trim()}
+
+■車両情報
+車種:${carType}
+車番:${carNumber}
+サイズ:${sizeStr}`;
+
+            const tempTextArea = document.createElement('textarea');
+            tempTextArea.value = formattedText;
+            document.body.appendChild(tempTextArea);
+            tempTextArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempTextArea);
+
+            showToast(`${item.company} の選択した作業員のメール用データをコピーしました！`);
+            cancelSelectionMode(); 
+        }
+
+        // --- 単一担当者(代表のみ)メール用コピペ ---
+        function copyMailFormat(id) {
+            const item = items.find(i => i.id === id);
+            if (!item) return;
+
+            const repWorker = item.workers && item.workers.length > 0 ? item.workers[0] : null;
+            const repName = repWorker && repWorker.name ? `${repWorker.name}様宛` : '御中';
+            const telNo = item.tel ? item.tel : (repWorker && repWorker.phone ? repWorker.phone : '---');
+
+            let selectedWorkersText = `・担当者1:${repWorker ? repWorker.name : '---'}\n　連絡先:${repWorker ? repWorker.phone : '---'}`;
+
+            let carType = '---';
+            let carNumber = '---';
+            if (repWorker && repWorker.car) {
+                const parsedCar = parseCarText(repWorker.car);
+                carType = parsedCar.type;
+                carNumber = parsedCar.number;
+            }
+
+            let sizeStr = '---';
+            if (item.remarks) {
+                const sizeMatch = item.remarks.match(/(サイズ[:：\s]?長さ[^：\n]*|長さ[^：\n]*kg|幅[^：\n]*高さ[^：\n]*|積載量[^：\n]*kg)/);
+                if (sizeMatch) {
+                    sizeStr = sizeMatch[0].trim();
+                } else if (item.remarks.includes('長さ') || item.remarks.includes('幅') || item.remarks.includes('積載')) {
+                    sizeStr = item.remarks;
+                }
+            }
+
+            const formattedText = `■納品先
+〒${item.zip || '---'}
+${item.address || '---'}
+${item.company} ${repName}
+${telNo}
+
+■作業予定担当者情報
+${selectedWorkersText}
+
+■車両情報
+車種:${carType}
+車番:${carNumber}
+サイズ:${sizeStr}`;
+
+            const tempTextArea = document.createElement('textarea');
+            tempTextArea.value = formattedText;
+            document.body.appendChild(tempTextArea);
+            tempTextArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempTextArea);
+
+            showToast(`${item.company} の連絡メール用データをコピーしました！`);
+        }
+
+        // --- 管理者承認 ---
+        function approveItem(id) {
+            if (!isAdminMode) return;
+            const idx = items.findIndex(i => i.id === id);
+            if (idx !== -1) {
+                items[idx].isPending = false;
+                save();
+                renderList();
+                showToast('変更内容を承認しました！');
+            }
+        }
+
+        // --- 保存・削除・編集等アクション ---
+        function save() { localStorage.setItem('worker_vehicle_full_db_v2', JSON.stringify(items)); }
+        
+        // 削除
+        function deleteItem(id) {
+            if (!isAdminMode) return;
+            if (confirm('このデータを完全に削除しますか？')) {
+                items = items.filter(i => i.id !== id);
+                save(); renderList();
+                showToast('データを削除しました');
+            }
+        }
+
+        // 編集
+        function editItem(id) {
+            const item = items.find(i => i.id === id);
+            if (!item) return;
+            editTargetId = id;
+            document.getElementById('area').value = item.area;
+            document.getElementById('company-name').value = item.company;
+            document.getElementById('zipcode').value = item.zip;
+            document.getElementById('address').value = item.address;
+            document.getElementById('landline').value = item.tel;
+            document.getElementById('remarks').value = item.remarks;
+            
+            // 資料入力フィールドの再現
+            const docContainer = document.getElementById('doc-fields-container');
+            docContainer.innerHTML = '';
+            if (item.docs && item.docs.length > 0) {
+                item.docs.forEach(doc => addDocField(doc));
+            } else {
+                addDocField();
+            }
+
+            // 作業員入力フィールドの再現
+            const workerContainer = document.getElementById('worker-fields-container');
+            workerContainer.innerHTML = '';
+            if (item.workers && item.workers.length > 0) {
+                item.workers.forEach(w => addWorkerField(w));
+            } else {
+                addWorkerField();
+            }
+            
+            document.getElementById('form-title').innerHTML = '<i class="fa-solid fa-edit text-amber-600"></i> データを編集中';
+            document.getElementById('submit-btn').querySelector('span').textContent = '更新を保存する';
+            document.getElementById('cancel-edit').classList.remove('hidden');
+            
+            toggleFormSidebar(true);
+            document.getElementById('form-sidebar').scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // 復元
+        function resetToInitial() {
+            if (!isAdminMode) return;
+            if(confirm("全てのデータを初期状態に復元します。よろしいですか？")) {
+                items = excelFullData.map(item => ({ ...item, isPending: false, docs: item.docs || [] }));
+                save();
+                renderList();
+                showToast('初期データに復元しました');
+            }
+        }
+
+        // --- 高度なデータ出力モーダル開閉 ---
+        function openExportChoiceModal() {
+            document.getElementById('export-choice-modal').classList.remove('hidden');
+        }
+
+        function closeExportChoiceModal() {
+            document.getElementById('export-choice-modal').classList.add('hidden');
+        }
+
+        // 1. Excel (CSVダウンロード) 機能
+        function downloadAsExcelCSV() {
+            let csvContent = "\uFEFF"; // Excel用のUTF-8 BOM
+            csvContent += "ID,エリア,所属会社,郵便番号,住所,固定電話,備考,関連資料,作業員氏名,携帯番号,車両情報\n";
+            
+            items.forEach(item => {
+                const docsStr = (item.docs || []).map(d => `${d.type}(${d.name})`).join(' | ');
+                const remarksCleaned = (item.remarks || '').replace(/\r?\n/g, ' ').replace(/"/g, '""');
+                
+                if (item.workers && item.workers.length > 0) {
+                    item.workers.forEach(w => {
+                        csvContent += `"${item.id}","${item.area || ''}","${item.company}","${item.zip || ''}","${item.address || ''}","${item.tel || ''}","${remarksCleaned}","${docsStr}","${w.name || ''}","${w.phone || ''}","${(w.car || '').replace(/"/g, '""')}"\n`;
+                    });
+                } else {
+                    csvContent += `"${item.id}","${item.area || ''}","${item.company}","${item.zip || ''}","${item.address || ''}","${item.tel || ''}","${remarksCleaned}","${docsStr}","","",""\n`;
+                }
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", "作業員・車両情報データベース.csv");
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            closeExportChoiceModal();
+            showToast("Excel用CSVデータをダウンロードしました！");
+        }
+
+        // 2. Googleスプレッドシート貼付用 (TSVコピー) 機能
+        function copyForGoogleSheets() {
+            let tsvContent = "ID\tエリア\t所属会社\t郵便番号\t住所\t固定電話\t備考\t関連資料\t作業員氏名\t携帯番号\t車両情報\n";
+            
+            items.forEach(item => {
+                const docsStr = (item.docs || []).map(d => `${d.type}(${d.name})`).join(' | ');
+                const remarksCleaned = (item.remarks || '').replace(/\r?\n/g, ' ');
+                
+                if (item.workers && item.workers.length > 0) {
+                    item.workers.forEach(w => {
+                        tsvContent += `${item.id}\t${item.area || ''}\t${item.company}\t${item.zip || ''}\t${item.address || ''}\t${item.tel || ''}\t${remarksCleaned}\t${docsStr}\t${w.name || ''}\t${w.phone || ''}\t${(w.car || '').replace(/\r?\n/g, ' ')}\n`;
+                    });
+                } else {
+                    tsvContent += `${item.id}\t${item.area || ''}\t${item.company}\t${item.zip || ''}\t${item.address || ''}\t${item.tel || ''}\t${remarksCleaned}\t${docsStr}\t\t\t\n`;
+                }
+            });
+
+            const tempTextArea = document.createElement('textarea');
+            tempTextArea.value = tsvContent;
+            document.body.appendChild(tempTextArea);
+            tempTextArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempTextArea);
+            
+            closeExportChoiceModal();
+            showToast("Googleスプレッドシート用データをコピーしました！");
+        }
+
+        // 3. PDF出力 (Excelライクな表形式 A4横サイズ出力機能)
+        function printAsPDF() {
+            closeExportChoiceModal();
+            showToast("Excel風テーブルPDFを作成しています。少しお待ちください...", "warning");
+
+            // 有効なデータ行(HTML)を組み立てる
+            let tableRowsHtml = "";
+            
+            // 現在の検索キーワードに連動した項目のみ出力する（検索結果を反映）
+            const search = document.getElementById('search-input').value.toLowerCase();
+            const filteredItems = items.filter(item => {
+                const docsText = (item.docs || []).map(d => d.name).join(' ');
+                const text = [
+                    item.area, item.company, item.address, item.remarks, docsText,
+                    ...item.workers.map(w => (w.name || '') + (w.phone || '') + (w.car || ''))
+                ].join(' ').toLowerCase();
+                return text.includes(search);
+            });
+
+            filteredItems.forEach(item => {
+                const validWorkers = item.workers.filter(w => 
+                    (w.name && w.name.trim()) || 
+                    (w.phone && w.phone.trim()) || 
+                    (w.car && w.car.trim())
+                );
+                
+                const rowCount = validWorkers.length > 0 ? validWorkers.length : 1;
+                
+                for (let i = 0; i < rowCount; i++) {
+                    const w = validWorkers[i] || { name: '', phone: '', car: '' };
+                    tableRowsHtml += `<tr style="page-break-inside: avoid;">`;
+                    
+                    // 最初の行のみ会社情報を縦セル結合 (rowspan) して構築
+                    if (i === 0) {
+                        tableRowsHtml += `
+                            <td rowspan="${rowCount}" style="border: 1px solid #94a3b8; padding: 6px; font-size: 10px; text-align: center; background-color: #f1f5f9; font-weight: bold; color: #1e293b;">${escapeHTML(item.area || '---')}</td>
+                            <td rowspan="${rowCount}" style="border: 1px solid #94a3b8; padding: 6px; font-size: 10px; font-weight: bold; color: #1e3a8a; background-color: #ffffff;">${escapeHTML(item.company)}</td>
+                            <td rowspan="${rowCount}" style="border: 1px solid #94a3b8; padding: 6px; font-size: 9px; color: #475569; background-color: #ffffff; line-height: 1.3;">
+                                ${item.zip ? '〒' + escapeHTML(item.zip) + '<br>' : ''}${escapeHTML(item.address || '---')}
+                                ${item.tel ? `<br><span style="font-weight: bold; color: #334155;">TEL:</span> ${escapeHTML(item.tel)}` : ''}
+                            </td>
+                        `;
+                    }
+                    
+                    // 作業者情報。代表担当者(C列代表/index 0)の場合はExcelのように目印の薄い黄色の背景を付ける
+                    const workerBg = i === 0 ? 'background-color: #fffbeb;' : 'background-color: #ffffff;';
+                    tableRowsHtml += `
+                        <td style="border: 1px solid #94a3b8; padding: 6px; font-size: 10px; ${workerBg}">${escapeHTML(w.name || '---')}</td>
+                        <td style="border: 1px solid #94a3b8; padding: 6px; font-size: 10px; font-family: monospace; ${workerBg}">${escapeHTML(w.phone || '---')}</td>
+                        <td style="border: 1px solid #94a3b8; padding: 6px; font-size: 9px; color: #334155; ${workerBg}">${escapeHTML(w.car || '---')}</td>
+                    `;
+                    
+                    // 最初の行のみ備考欄を rowspan 結合して構築
+                    if (i === 0) {
+                        tableRowsHtml += `
+                            <td rowspan="${rowCount}" style="border: 1px solid #94a3b8; padding: 6px; font-size: 9px; color: #64748b; background-color: #ffffff; line-height: 1.3; max-width: 150px; word-break: break-all;">${escapeHTML(item.remarks || '---').replace(/\n/g, '<br>')}</td>
+                        `;
+                    }
+                    
+                    tableRowsHtml += `</tr>`;
+                }
+            });
+
+            const now = new Date();
+            const nowStr = `${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日 ${now.getHours()}時${now.getMinutes()}分現在`;
+
+            // PDFとしてレンダリングするHTML表コンテナの構築 (A4横サイズ 297mm × 210mm に最適化)
+            const tempDiv = document.createElement('div');
+            tempDiv.style.padding = '8mm';
+            tempDiv.style.backgroundColor = '#ffffff';
+            tempDiv.style.width = '275mm'; // 横置きのコンテンツ実幅
+
+            tempDiv.innerHTML = `
+                <div style="font-family: 'Noto Sans JP', sans-serif;">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #1e3a8a; padding-bottom: 6px; margin-bottom: 12px;">
+                        <h2 style="font-size: 18px; font-weight: bold; color: #1e3a8a; margin: 0; padding: 0;">作業員・車両情報 登録一覧表 (横型)</h2>
+                        <span style="font-size: 9px; color: #64748b; margin: 0; padding: 0;">出力日時: ${nowStr}</span>
+                    </div>
+                    <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #334155; background-color: #ffffff; table-layout: fixed;">
+                        <thead>
+                            <tr style="background-color: #1e3a8a; color: #ffffff; text-align: left;">
+                                <th style="border: 1.5px solid #334155; padding: 8px; font-size: 10px; font-weight: bold; width: 8%; text-align: center;">エリア</th>
+                                <th style="border: 1.5px solid #334155; padding: 8px; font-size: 10px; font-weight: bold; width: 18%;">所属会社名</th>
+                                <th style="border: 1.5px solid #334155; padding: 8px; font-size: 10px; font-weight: bold; width: 25%;">住所・固定電話</th>
+                                <th style="border: 1.5px solid #334155; padding: 8px; font-size: 10px; font-weight: bold; width: 12%;">担当者名</th>
+                                <th style="border: 1.5px solid #334155; padding: 8px; font-size: 10px; font-weight: bold; width: 12%;">携帯番号</th>
+                                <th style="border: 1.5px solid #334155; padding: 8px; font-size: 10px; font-weight: bold; width: 14%;">車両情報</th>
+                                <th style="border: 1.5px solid #334155; padding: 8px; font-size: 10px; font-weight: bold; width: 11%;">備考</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${tableRowsHtml}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+
+            // html2pdf 設定オプション (A4横サイズ出力)
+            const opt = {
+                margin:       [10, 10, 10, 10],
+                filename:     '作業員・車両情報一覧.pdf',
+                image:        { type: 'jpeg', quality: 0.98 },
+                html2canvas:  { scale: 2, useCORS: true, logging: false },
+                jsPDF:        { unit: 'mm', format: 'a4', orientation: 'landscape' }
+            };
+
+            // ライブラリでPDF出力・自動ダウンロードを実行
+            html2pdf().set(opt).from(tempDiv).save().then(() => {
+                showToast("Excel風テーブルPDFが正常にダウンロードされました！");
+            }).catch(err => {
+                console.error("html2pdfエラー:", err);
+                showToast("自動PDF化に失敗しました。通常の印刷画面を起動します...", "warning");
+                setTimeout(() => {
+                    window.print();
+                }, 1000);
+            });
+        }
+
+        // 4. システム用JSONデータエクスポート
+        function exportJSONData() {
+            closeExportChoiceModal();
+            openModal('全データ出力 (JSON形式)', JSON.stringify(items, null, 2), () => {
+                const ta = document.getElementById('modal-textarea');
+                ta.select(); document.execCommand('copy');
+                const btn = document.getElementById('modal-action-btn');
+                const originalText = btn.textContent;
+                btn.textContent = 'コピー完了！';
+                btn.className = 'px-6 py-2.5 bg-emerald-600 text-white rounded-lg font-bold text-sm shadow-md transition';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                    btn.className = 'px-6 py-2.5 bg-indigo-600 text-white rounded-lg font-bold text-sm hover:bg-indigo-700 shadow-md transition';
+                }, 1500);
+            }, '全コピー');
+        }
+
+        // --- 通常データのJSONインポートモーダル ---
+        function openImportModal() {
+            if (!isAdminMode) return;
+            openModal('データ読み込み (JSON)', '', () => {
+                try {
+                    const json = JSON.parse(document.getElementById('modal-textarea').value);
+                    if (Array.isArray(json)) {
+                        items = json.map(item => ({
+                            ...item,
+                            isPending: item.isPending !== undefined ? item.isPending : false,
+                            docs: item.docs || []
+                        }));
+                        save(); renderList(); closeModal();
+                        showToast('データをインポートしました');
+                    } else { throw new Error(); }
+                } catch(e) { alert('形式が正しくありません。JSON配列を入力してください。'); }
+            }, 'インポート実行');
+        }
+
+        function openModal(title, text, callback, label) {
+            document.getElementById('modal-title').textContent = title;
+            document.getElementById('modal-textarea').classList.remove('hidden');
+            document.getElementById('modal-login-container').classList.add('hidden');
+            document.getElementById('modal-textarea').value = text;
+            document.getElementById('modal-overlay').classList.remove('hidden');
+            const btn = document.getElementById('modal-action-btn');
+            btn.textContent = label; btn.onclick = callback;
+        }
+
+        // HTMLエスケープ処理
+        function escapeHTML(str) {
+            if (typeof str !== 'string') return '';
+            return str.replace(/[&<>'"]/g, tag => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                "'": '&#39;',
+                '"': '&quot;'
+            }[tag] || tag));
+        }
+
+        function closeModal() { document.getElementById('modal-overlay').classList.add('hidden'); }
+    </script>
+</body>
+</html>
