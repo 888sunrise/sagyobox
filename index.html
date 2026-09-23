@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>作業員・車両情報 管理共有ツール</title>
+    <title>作業員・車両情報 管理共有ツール (クラウド連携版)</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- FontAwesome アイコンライブラリ -->
@@ -22,7 +22,7 @@
         
         /* 印刷（PDF保存）時に不要なUIパーツを自動非表示にするスタイル設定 */
         @media print {
-            header, aside, #toast-container, #modal-overlay, #btn-toggle-form, 
+            header, aside, #toast-container, #modal-overlay, #export-choice-modal, #btn-toggle-form, 
             #search-input, #btn-search-clear, #count-company, #count-worker, 
             button, .border-b .flex, .flex-row.md\:flex-col, .toolbar-area {
                 display: none !important;
@@ -57,10 +57,15 @@
     <header class="bg-indigo-800 text-white shadow-lg shrink-0">
         <div class="max-w-[1600px] mx-auto px-4 py-3 flex flex-col lg:flex-row justify-between items-center gap-3">
             <div class="flex items-center gap-3 w-full lg:w-auto">
-                <i class="fa-solid fa-database text-2xl text-indigo-300"></i>
+                <i class="fa-solid fa-cloud shadow-indigo-900 text-2xl text-indigo-300"></i>
                 <div>
-                    <h1 class="text-lg font-bold leading-none">作業員・車両情報 管理共有ツール</h1>
-                    <p class="text-[10px] text-indigo-200 mt-1 uppercase tracking-widest">Role-Based Access Management</p>
+                    <h1 class="text-lg font-bold leading-none flex items-center gap-2">
+                        作業員・車両情報 管理共有ツール
+                        <span id="sync-indicator" class="text-[10px] bg-indigo-900/90 text-indigo-200 border border-indigo-700 px-2 py-0.5 rounded-full font-normal flex items-center gap-1">
+                            <i class="fa-solid fa-arrows-rotate animate-spin text-[9px]"></i> 接続中...
+                        </span>
+                    </h1>
+                    <p class="text-[10px] text-indigo-200 mt-1 uppercase tracking-widest">Real-Time Cloud Synchronization</p>
                 </div>
             </div>
             
@@ -71,7 +76,7 @@
                     <span id="mode-text" class="font-bold text-indigo-100">閲覧モード (共有中)</span>
                 </div>
 
-                <!-- 出力機能：管理者ログイン時のみ動的に表示されるようhiddenクラスを付与 -->
+                <!-- 出力機能：管理者ログイン時のみ表示 -->
                 <button id="btn-export-main" onclick="openExportChoiceModal()" class="hidden bg-indigo-700 hover:bg-indigo-600 text-xs px-3 py-1.5 rounded-md flex items-center gap-1.5 transition border border-indigo-500 shadow-sm font-bold">
                     <i class="fa-solid fa-file-export"></i> データ出力 (Excel/PDF選択)
                 </button>
@@ -176,7 +181,7 @@
                 </div>
 
                 <button type="submit" id="submit-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-lg shadow-md transition-all flex items-center justify-center gap-2">
-                    <i class="fa-solid fa-floppy-disk"></i> <span>保存する</span>
+                    <i class="fa-solid fa-cloud-arrow-up"></i> <span>クラウドへ保存する</span>
                 </button>
             </form>
         </aside>
@@ -228,7 +233,7 @@
                             <span class="text-emerald-600 bg-white p-2.5 rounded-lg border border-emerald-100 shadow-sm"><i class="fa-solid fa-file-excel text-xl"></i></span>
                             <div>
                                 <h4 class="font-bold text-emerald-900 text-sm">Excel で開く (.csvファイル出力)</h4>
-                                <p class="text-xs text-emerald-700 mt-0.5">Excelでそのまま編集できるShift-JIS/BOM対応 of CSV出力</p>
+                                <p class="text-xs text-emerald-700 mt-0.5">Excelでそのまま編集できるShift-JIS/BOM対応 CSV出力</p>
                             </div>
                         </div>
                         <i class="fa-solid fa-chevron-right text-emerald-400 group-hover:translate-x-1 transition"></i>
@@ -295,16 +300,16 @@
                 <!-- 高機能インポート用コンテナ (ドラッグ&ドロップエリア) -->
                 <div id="modal-import-container" class="hidden mb-4 space-y-4">
                     <p class="text-xs text-slate-500 leading-relaxed">
-                        Excelファイル（.xlsx / .xls）、CSVファイル（.csv）、またはJSONバックアップファイルを読み込んで、現在のデータを<b>上書きインポート</b>します。<br>
-                        ※同じ「所属会社」の行が複数存在する場合は、自動的に1つの会社カードにまとめて作業員を追加配備します。
+                        Excelファイル（.xlsx / .xls）、CSVファイル（.csv）、またはJSONバックアップファイルを読み込んでクラウドデータベースに合算・保存します。<br>
+                        ※同じ「所属会社」が存在する場合は自動統合され、新規会社は自動追加されます。
                     </p>
                     
                     <div id="drop-zone" 
                          ondragover="event.preventDefault(); this.classList.add('border-indigo-500', 'bg-indigo-50/30');" 
                          ondragleave="this.classList.remove('border-indigo-500', 'bg-indigo-50/30');" 
-                         ondrop="event.preventDefault(); this.classList.remove('border-indigo-500', 'bg-indigo-50/30'); if(event.dataTransfer.files.length) { document.getElementById('import-file-input').files = event.dataTransfer.files; handleFileImport({target: {files: event.dataTransfer.files}}); }"
+                         ondrop="event.preventDefault(); this.classList.remove('border-indigo-500', 'bg-indigo-50/30'); if(event.dataTransfer.files.length) { document.getElementById('import-file-input').files = event.dataTransfer.files; window.handleFileImport({target: {files: event.dataTransfer.files}}); }"
                          class="border-2 border-dashed border-indigo-200 hover:border-indigo-500 hover:bg-indigo-50/30 rounded-xl p-8 text-center cursor-pointer transition-all relative">
-                        <input type="file" id="import-file-input" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" accept=".xlsx,.xls,.csv,.json" onchange="handleFileImport(event)">
+                        <input type="file" id="import-file-input" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" accept=".xlsx,.xls,.csv,.json" onchange="window.handleFileImport(event)">
                         <div class="space-y-2 pointer-events-none">
                             <i class="fa-solid fa-cloud-arrow-up text-4xl text-indigo-400"></i>
                             <p class="text-sm font-bold text-slate-700">ファイルを選択、またはここにドラッグ＆ドロップ</p>
@@ -326,8 +331,8 @@
                             <i class="fa-solid fa-circle-check text-lg animate-bounce"></i>
                         </div>
                         <div>
-                            <h4 class="font-bold text-indigo-900 text-sm">データのインポートが完了しました！</h4>
-                            <p class="text-xs text-indigo-700 mt-0.5">元のデータと比較した上書きの解析結果は以下の通りです。</p>
+                            <h4 class="font-bold text-indigo-900 text-sm">クラウドへのデータ反映が完了しました！</h4>
+                            <p class="text-xs text-indigo-700 mt-0.5">解析・保存結果の概要は以下の通りです。</p>
                         </div>
                     </div>
 
@@ -356,7 +361,7 @@
                         <h5 class="text-xs font-bold text-slate-500 mb-2 flex items-center gap-1.5">
                             <i class="fa-solid fa-list-ul"></i> 取り込み詳細ログ
                         </h5>
-                        <div id="dash-log-list" class="max-h-48 overflow-y-auto border border-slate-200 rounded-lg divide-y text-xs font-medium">
+                        <div id="dash-log-list" class="max-h-48 overflow-y-auto border border-slate-200 rounded-lg divide-y text-xs font-medium bg-slate-50 p-2">
                             <!-- JSで挿入 -->
                         </div>
                     </div>
@@ -376,24 +381,51 @@
     <!-- トースト通知用コンテナ -->
     <div id="toast-container" class="fixed bottom-5 right-5 z-[200] pointer-events-none space-y-2"></div>
 
-    <script>
-        // --- 状態管理 ---
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, getDocs 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Firebase 初期設定 ---
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'worker-vehicle-app-v1';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' 
+            ? JSON.parse(__firebase_config) 
+            : {
+                // デモ用フォールバック構成
+                apiKey: "demo-api-key",
+                authDomain: "demo-app.firebaseapp.com",
+                projectId: "demo-app-project",
+                storageBucket: "demo-app.appspot.com",
+                messagingSenderId: "123456789",
+                appId: "1:123456789:web:abcdef"
+            };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // クラウドデータ共有コレクションのパス宣言 (RULE 1 準拠)
+        const dbCollectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'worker_companies');
+
+        // --- アプリケーション状態 ---
         let items = [];
         let editTargetId = null;
-        let isAdminMode = false; // 管理者モードフラグ
+        let isAdminMode = false;
+        let isCloudConnected = false;
         
-        // 複数作業予定者選択の一時状態
         let selectingCardId = null; 
         let selectedWorkerIndices = new Set(); 
 
-        // --- ドキュメントタイプのアイコンマップ ---
+        // --- ドキュメントアイコンマップ ---
         const docIconMap = {
             excel: { icon: 'fa-file-excel', color: 'text-emerald-600 bg-emerald-50 border-emerald-200 hover:bg-emerald-100', label: 'Excel資料' },
             spreadsheet: { icon: 'fa-file-invoice', color: 'text-green-600 bg-green-50 border-green-200 hover:bg-green-100', label: 'スプレッドシート' },
             pdf: { icon: 'fa-file-pdf', color: 'text-rose-600 bg-rose-50 border-rose-200 hover:bg-rose-100', label: 'PDF資料' }
         };
 
-        // --- 全エクセルデータの定義（完全版の初期データベース 34社） ---
+        // --- 初期マスターデータベース（34社データ） ---
         const excelFullData = [
             { id: "1", area: "北海道", company: "ファイテックシステム㈱", zip: "004-0803", address: "北海道札幌市清田区里塚3条4丁目1-8", tel: "", remarks: "", docs: [], workers: [{ name: "西村光博", phone: "090-9515-5638", car: "" }] },
             { id: "2", area: "北海道", company: "ヤブシタ電設（株）", zip: "060-0006", address: "北海道札幌市中央区北6条西23丁目1-12", tel: "", remarks: "", docs: [], workers: [
@@ -494,40 +526,130 @@
             ]}
         ];
 
-        window.onload = () => {
+        // 認証およびFirestoreリアルタイム同期の開始 (RULE 3 準拠)
+        async function initCloudSync() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                
+                updateSyncUI(true, 'クラウド同期中');
+
+                // Firestoreのリアルタイム変更リスナー登録
+                onSnapshot(dbCollectionRef, (snapshot) => {
+                    const cloudItems = [];
+                    snapshot.forEach((docSnap) => {
+                        cloudItems.push(docSnap.data());
+                    });
+
+                    // 初回読み込みでクラウドデータが空の場合は初期34社を投入
+                    if (cloudItems.length === 0 && snapshot.metadata.fromCache === false) {
+                        seedInitialDataToCloud();
+                    } else {
+                        items = cloudItems.sort((a, b) => (parseInt(a.id) || 0) - (parseInt(b.id) || 0));
+                        renderList();
+                    }
+                }, (error) => {
+                    console.error("Firestore onSnapshot error:", error);
+                    updateSyncUI(false, 'オフライン (ローカル表示)');
+                    fallbackToLocalStorage();
+                });
+
+            } catch (err) {
+                console.warn("クラウド認証/接続エラー。ローカルモードで動作します:", err);
+                updateSyncUI(false, 'ローカルモード');
+                fallbackToLocalStorage();
+            }
+        }
+
+        function updateSyncUI(connected, statusText) {
+            isCloudConnected = connected;
+            const el = document.getElementById('sync-indicator');
+            if (connected) {
+                el.className = "text-[10px] bg-emerald-900/90 text-emerald-200 border border-emerald-700 px-2 py-0.5 rounded-full font-normal flex items-center gap-1";
+                el.innerHTML = `<i class="fa-solid fa-cloud text-emerald-400"></i> ${statusText}`;
+            } else {
+                el.className = "text-[10px] bg-amber-900/90 text-amber-200 border border-amber-700 px-2 py-0.5 rounded-full font-normal flex items-center gap-1";
+                el.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-amber-400"></i> ${statusText}`;
+            }
+        }
+
+        // 初期データの投入
+        async function seedInitialDataToCloud() {
+            try {
+                for (const item of excelFullData) {
+                    const formatted = { ...item, isPending: false, docs: item.docs || [] };
+                    await setDoc(doc(dbCollectionRef, formatted.id), formatted);
+                }
+            } catch(e) {
+                console.error("初期データの投入失敗:", e);
+            }
+        }
+
+        // ローカルストレージ フォールバック
+        function fallbackToLocalStorage() {
             const saved = localStorage.getItem('worker_vehicle_full_db_v2');
             if (saved) {
                 try {
                     items = JSON.parse(saved);
-                    if (!Array.isArray(items) || items.length === 0) {
-                        items = excelFullData.map(item => ({ ...item, isPending: false, docs: item.docs || [] }));
-                        save();
-                    } else {
-                        items.forEach(item => {
-                            if (item.isPending === undefined) item.isPending = false;
-                            if (!item.docs) item.docs = [];
-                        });
-                    }
-                } catch (e) {
-                    items = excelFullData.map(item => ({ ...item, isPending: false, docs: item.docs || [] }));
-                    save();
+                } catch(e) {
+                    items = excelFullData.map(i => ({...i, isPending: false, docs: i.docs || []}));
                 }
             } else {
-                items = excelFullData.map(item => ({ ...item, isPending: false, docs: item.docs || [] }));
-                save();
+                items = excelFullData.map(i => ({...i, isPending: false, docs: i.docs || []}));
             }
+            renderList();
+        }
+
+        // クラウド・ローカル双方への書き込み
+        async function saveItemToCloud(item) {
+            items = items.filter(i => i.id !== item.id);
+            items.push(item);
+            items.sort((a, b) => (parseInt(a.id) || 0) - (parseInt(b.id) || 0));
+
+            try {
+                localStorage.setItem('worker_vehicle_full_db_v2', JSON.stringify(items));
+            } catch(e){}
+
+            if (isCloudConnected && auth.currentUser) {
+                try {
+                    await setDoc(doc(dbCollectionRef, item.id), item);
+                } catch (e) {
+                    console.error("Firestore setDoc failed:", e);
+                    showToast("クラウド保存に失敗しました。ローカルに保存されました。", "warning");
+                }
+            }
+        }
+
+        async function removeItemFromCloud(id) {
+            items = items.filter(i => i.id !== id);
+            try {
+                localStorage.setItem('worker_vehicle_full_db_v2', JSON.stringify(items));
+            } catch(e){}
+
+            if (isCloudConnected && auth.currentUser) {
+                try {
+                    await deleteDoc(doc(dbCollectionRef, id));
+                } catch (e) {
+                    console.error("Firestore deleteDoc failed:", e);
+                }
+            }
+        }
+
+        window.onload = () => {
             addWorkerField();
             addDocField();
             applyModeUI(); 
-            renderList();
+            initCloudSync();
         };
 
-        // --- フォームの開閉 (サイドバー制御) ---
+        // --- フォームサイドバー制御 ---
         function toggleFormSidebar(forceState) {
             const sidebar = document.getElementById('form-sidebar');
             const btnText = document.getElementById('btn-toggle-form-text');
             const isOpen = !sidebar.classList.contains('hidden');
-            
             const nextState = forceState !== undefined ? forceState : !isOpen;
 
             if (nextState) {
@@ -552,7 +674,6 @@
             }
         }
 
-        // ログイン窓を開く（案内表示の復元）
         function openLoginModal() {
             document.getElementById('modal-title').textContent = "管理者ログイン";
             document.getElementById('modal-textarea').classList.add('hidden');
@@ -598,7 +719,7 @@
                 modeDot.className = "w-2 h-2 rounded-full bg-rose-500 animate-pulse";
                 btnImport.classList.remove('hidden');
                 btnReset.classList.remove('hidden');
-                if (btnExportMain) btnExportMain.classList.remove('hidden'); // 管理者ログイン時のみ表示
+                if (btnExportMain) btnExportMain.classList.remove('hidden');
                 authBtnText.textContent = "ログアウト";
                 authIcon.className = "fa-solid fa-unlock";
             } else {
@@ -606,13 +727,13 @@
                 modeDot.className = "w-2 h-2 rounded-full bg-emerald-400 animate-pulse";
                 btnImport.classList.add('hidden');
                 btnReset.classList.add('hidden');
-                if (btnExportMain) btnExportMain.classList.add('hidden'); // 閲覧モード時は非表示
+                if (btnExportMain) btnExportMain.classList.add('hidden');
                 authBtnText.textContent = "管理者ログイン";
                 authIcon.className = "fa-solid fa-lock";
             }
         }
 
-        // --- 検索のクリア制御 ---
+        // --- 検索クリア制御 ---
         function handleSearchInput() {
             const input = document.getElementById('search-input');
             const clearBtn = document.getElementById('btn-search-clear');
@@ -623,7 +744,6 @@
             }
         }
 
-        // 検索クリア機能
         function clearSearch() {
             const input = document.getElementById('search-input');
             const clearBtn = document.getElementById('btn-search-clear');
@@ -633,7 +753,6 @@
             input.focus();
         }
 
-        // --- トースト通知の作成 ---
         function showToast(message, type = 'success') {
             const container = document.getElementById('toast-container');
             const toast = document.createElement('div');
@@ -643,19 +762,13 @@
             toast.innerHTML = `<i class="fa-solid ${type === 'success' ? 'fa-circle-check' : 'fa-circle-exclamation'}"></i> <span>${message}</span>`;
             container.appendChild(toast);
             
-            setTimeout(() => {
-                toast.classList.remove('translate-y-4', 'opacity-0');
-            }, 10);
-            
+            setTimeout(() => { toast.classList.remove('translate-y-4', 'opacity-0'); }, 10);
             setTimeout(() => {
                 toast.classList.add('translate-y-4', 'opacity-0');
-                setTimeout(() => {
-                    toast.remove();
-                }, 300);
+                setTimeout(() => { toast.remove(); }, 300);
             }, 3000);
         }
 
-        // --- 関連資料フィールドの動的追加 ---
         function addDocField(data = {type: 'excel', name: '', url: ''}) {
             const container = document.getElementById('doc-fields-container');
             const div = document.createElement('div');
@@ -675,7 +788,6 @@
             container.appendChild(div);
         }
 
-        // --- 作業員フィールドの追加 ---
         function addWorkerField(data = {name:'', phone:'', car:''}) {
             const container = document.getElementById('worker-fields-container');
             const div = document.createElement('div');
@@ -691,22 +803,17 @@
             container.appendChild(div);
         }
 
-        // --- 新規登録・編集の保存処理 ---
-        function handleFormSubmit(e) {
+        async function handleFormSubmit(e) {
             e.preventDefault();
 
-            // 関連資料データのパース
             const docs = [];
             document.querySelectorAll('.doc-input-group').forEach(group => {
                 const type = group.querySelector('.d-type').value;
                 const name = group.querySelector('.d-name').value.trim();
                 const url = group.querySelector('.d-url').value.trim();
-                if (name) {
-                    docs.push({ type, name, url: url || '#' });
-                }
+                if (name) docs.push({ type, name, url: url || '#' });
             });
 
-            // 作業員データのパース
             const workers = [];
             document.querySelectorAll('.worker-input-group').forEach(group => {
                 const name = group.querySelector('.w-name').value.trim();
@@ -730,13 +837,8 @@
                 isPending: isPendingStatus
             };
 
-            if (editTargetId) {
-                const idx = items.findIndex(i => i.id === editTargetId);
-                items[idx] = newItem;
-            } else {
-                items.unshift(newItem);
-            }
-            save();
+            await saveItemToCloud(newItem);
+
             resetForm();
             toggleFormSidebar(false); 
             renderList();
@@ -744,7 +846,7 @@
             if (isPendingStatus) {
                 showToast('保存しました（管理者の承認後に最終反映されます）', 'warning');
             } else {
-                showToast('データを保存しました');
+                showToast('データをクラウドに同期しました');
             }
         }
 
@@ -754,18 +856,18 @@
             document.getElementById('worker-fields-container').innerHTML = '';
             document.getElementById('doc-fields-container').innerHTML = '';
             document.getElementById('form-title').innerHTML = '<i class="fa-solid fa-pen-to-square text-indigo-600"></i> 情報登録・編集';
-            document.getElementById('submit-btn').querySelector('span').textContent = '保存する';
+            document.getElementById('submit-btn').querySelector('span').textContent = 'クラウドへ保存する';
             document.getElementById('cancel-edit').classList.add('hidden');
             addWorkerField();
             addDocField();
         }
 
-        // --- 作業員選択モード制御 ---
+        // --- 担当者選択モード ---
         function startSelectionMode(id) {
             selectingCardId = id;
             selectedWorkerIndices.clear();
             renderList();
-            showToast("作業予定担当者を選択（チェック）して「選択完了」ボタンを押してください。", "warning");
+            showToast("作業予定担当者を選択して「選択完了」を押してください。", "warning");
         }
 
         function cancelSelectionMode() {
@@ -795,19 +897,18 @@
                 type = type.replace(/^①|②/g, '').trim();
                 return { type: type || '---', number: number };
             }
-            
             const parts = carStr.split(/\s+/);
             if (parts.length > 1) {
-                return {
-                    type: parts.slice(0, parts.length - 1).join(' '),
-                    number: parts[parts.length - 1]
-                };
+                return { type: parts.slice(0, parts.length - 1).join(' '), number: parts[parts.length - 1] };
             }
-            
             return { type: carStr, number: '---' };
         }
 
-        // --- 一覧カードレンダリング ---
+        function escapeHTML(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
         function renderList() {
             const container = document.getElementById('data-list');
             const search = document.getElementById('search-input').value.toLowerCase();
@@ -817,7 +918,7 @@
                 const docsText = (item.docs || []).map(d => d.name).join(' ');
                 const text = [
                     item.area, item.company, item.address, item.remarks, docsText,
-                    ...item.workers.map(w => (w.name || '') + (w.phone || '') + (w.car || ''))
+                    ...(item.workers || []).map(w => (w.name || '') + (w.phone || '') + (w.car || ''))
                 ].join(' ').toLowerCase();
                 return text.includes(search);
             });
@@ -825,7 +926,7 @@
             document.getElementById('count-company').textContent = filtered.length;
             let totalW = 0;
             filtered.forEach(i => {
-                const validWorkers = i.workers.filter(w => (w.name && w.name.trim()) || (w.phone && w.phone.trim()) || (w.car && w.car.trim()));
+                const validWorkers = (i.workers || []).filter(w => (w.name && w.name.trim()) || (w.phone && w.phone.trim()) || (w.car && w.car.trim()));
                 totalW += validWorkers.length;
             });
             document.getElementById('count-worker').textContent = totalW;
@@ -842,23 +943,19 @@
                     card.className = 'data-card bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden';
                 }
                 
-                // 有効な作業員のみを抽出して描画
-                const validWorkers = item.workers.filter(w => 
+                const validWorkers = (item.workers || []).filter(w => 
                     (w.name && w.name.trim()) || 
                     (w.phone && w.phone.trim()) || 
                     (w.car && w.car.trim())
                 );
 
-                // 作業員リスト（最初の人は代表者表示）
                 const workersHtml = validWorkers.map((w, idx) => {
                     const isRepresentative = (idx === 0);
                     let bgClass = isRepresentative 
                         ? 'p-3 bg-amber-50/60 border-2 border-amber-200/80 rounded-lg relative' 
                         : 'p-3 bg-slate-50 border border-slate-200 rounded-lg';
                     
-                    if (isThisCardSelecting) {
-                        bgClass += ' cursor-pointer hover:border-indigo-400 transition-all';
-                    }
+                    if (isThisCardSelecting) bgClass += ' cursor-pointer hover:border-indigo-400 transition-all';
 
                     const repBadge = isRepresentative 
                         ? `<span class="absolute top-2 right-2 bg-amber-100 text-amber-800 border border-amber-300 text-[9px] px-1.5 py-0.5 rounded-md font-bold flex items-center gap-1"><i class="fa-solid fa-star text-amber-500"></i> 代表担当者</span>`
@@ -869,29 +966,28 @@
                         const isChecked = selectedWorkerIndices.has(idx);
                         checkboxHtml = `
                             <div class="flex items-center justify-center shrink-0 mr-2.5">
-                                <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleWorkerSelection(${idx})" class="w-5 h-5 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer">
+                                <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="window.toggleWorkerSelection(${idx})" class="w-5 h-5 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer">
                             </div>
                         `;
                     }
 
                     return `
-                        <div class="${bgClass}" ${isThisCardSelecting ? `onclick="toggleWorkerSelection(${idx}); event.stopPropagation();"` : ''}>
+                        <div class="${bgClass}" ${isThisCardSelecting ? `onclick="window.toggleWorkerSelection(${idx}); event.stopPropagation();"` : ''}>
                             <div class="flex items-start">
                                 ${checkboxHtml}
                                 <div class="flex-1">
                                     ${repBadge}
                                     <div class="flex flex-wrap items-center gap-2 mb-1.5 pr-14">
-                                        <span class="font-bold text-slate-800 text-sm">${w.name || '---'}</span>
-                                        ${w.phone ? `<a href="tel:${w.phone}" class="text-indigo-600 text-[11px] font-bold bg-white border border-indigo-200 px-2 py-0.5 rounded-full hover:bg-indigo-600 hover:text-white transition flex items-center gap-1" onclick="event.stopPropagation();"><i class="fa-solid fa-phone-flip text-[10px]"></i> ${w.phone}</a>` : ''}
+                                        <span class="font-bold text-slate-800 text-sm">${escapeHTML(w.name || '---')}</span>
+                                        ${w.phone ? `<a href="tel:${w.phone}" class="text-indigo-600 text-[11px] font-bold bg-white border border-indigo-200 px-2 py-0.5 rounded-full hover:bg-indigo-600 hover:text-white transition flex items-center gap-1" onclick="event.stopPropagation();"><i class="fa-solid fa-phone-flip text-[10px]"></i> ${escapeHTML(w.phone)}</a>` : ''}
                                     </div>
-                                    ${w.car ? `<div class="text-slate-600 text-xs flex items-start gap-1.5"><i class="fa-solid fa-truck text-slate-400 mt-0.5"></i><span>${w.car}</span></div>` : ''}
+                                    ${w.car ? `<div class="text-slate-600 text-xs flex items-start gap-1.5"><i class="fa-solid fa-truck text-slate-400 mt-0.5"></i><span>${escapeHTML(w.car)}</span></div>` : ''}
                                 </div>
                             </div>
                         </div>
                     `;
                 }).join('');
 
-                // 関連ドキュメントの表示
                 let docsHtml = '';
                 if (item.docs && item.docs.length > 0) {
                     docsHtml = `
@@ -899,9 +995,9 @@
                             ${item.docs.map(doc => {
                                 const style = docIconMap[doc.type] || docIconMap.excel;
                                 return `
-                                    <a href="${doc.url}" onclick="if('${doc.url}'==='#') { event.preventDefault(); showToast('デモリンクです。実際の環境では設定したファイルが開きます。', 'warning'); }" class="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md border font-bold transition shadow-sm ${style.color}" title="${doc.name}を開く">
+                                    <a href="${doc.url}" onclick="if('${doc.url}'==='#') { event.preventDefault(); window.showToast('デモリンクです。実際の環境では設定したファイルが開きます。', 'warning'); }" class="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md border font-bold transition shadow-sm ${style.color}" title="${escapeHTML(doc.name)}を開く">
                                         <i class="fa-solid ${style.icon}"></i>
-                                        <span>${doc.name}</span>
+                                        <span>${escapeHTML(doc.name)}</span>
                                     </a>
                                 `;
                             }).join('')}
@@ -909,32 +1005,31 @@
                     `;
                 }
 
-                // アクションボタン
                 let actionsHtml = `<div class="flex flex-row md:flex-col gap-2 shrink-0 w-full md:w-auto">`;
 
                 if (isThisCardSelecting) {
                     const hasSelected = selectedWorkerIndices.size > 0;
                     if (hasSelected) {
                         actionsHtml += `
-                            <button onclick="copySelectedWorkersMail('${item.id}')" class="flex-1 px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition flex items-center justify-center gap-2 shadow-md animate-bounce">
+                            <button onclick="window.copySelectedWorkersMail('${item.id}')" class="flex-1 px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition flex items-center justify-center gap-2 shadow-md animate-bounce">
                                 <i class="fa-solid fa-check"></i> 選択完了 (コピー)
                             </button>
                         `;
                     }
                     actionsHtml += `
-                        <button onclick="cancelSelectionMode()" class="flex-1 px-4 py-2 bg-slate-200 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-300 transition flex items-center justify-center gap-2">
+                        <button onclick="window.cancelSelectionMode()" class="flex-1 px-4 py-2 bg-slate-200 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-300 transition flex items-center justify-center gap-2">
                             キャンセル
                         </button>
                     `;
                 } else {
                     actionsHtml += `
-                        <button onclick="copyMailFormat('${item.id}')" class="flex-1 px-4 py-2 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-lg border border-emerald-200 hover:bg-emerald-600 hover:text-white hover:border-emerald-600 transition flex items-center justify-center gap-2 shadow-sm" title="指定のフォーマットでクリップボードへ保存します">
+                        <button onclick="window.copyMailFormat('${item.id}')" class="flex-1 px-4 py-2 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-lg border border-emerald-200 hover:bg-emerald-600 hover:text-white hover:border-emerald-600 transition flex items-center justify-center gap-2 shadow-sm" title="指定のフォーマットでクリップボードへ保存します">
                             <i class="fa-regular fa-copy"></i> メールへコピペ
                         </button>
-                        <button onclick="startSelectionMode('${item.id}')" class="flex-1 px-4 py-2 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-lg border border-indigo-200 hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition flex items-center justify-center gap-2 shadow-sm" title="行く人を個別に選んでメールを作成します">
+                        <button onclick="window.startSelectionMode('${item.id}')" class="flex-1 px-4 py-2 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-lg border border-indigo-200 hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition flex items-center justify-center gap-2 shadow-sm" title="行く人を個別に選んでメールを作成します">
                             <i class="fa-solid fa-user-check"></i> 作業者を選択
                         </button>
-                        <button onclick="editItem('${item.id}')" class="flex-1 px-4 py-2 bg-slate-50 text-slate-700 text-xs font-bold rounded-lg border border-slate-200 hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition flex items-center justify-center gap-2 shadow-sm">
+                        <button onclick="window.editItem('${item.id}')" class="flex-1 px-4 py-2 bg-slate-50 text-slate-700 text-xs font-bold rounded-lg border border-slate-200 hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition flex items-center justify-center gap-2 shadow-sm">
                             <i class="fa-solid fa-edit"></i> 編集
                         </button>
                     `;
@@ -943,13 +1038,13 @@
                 if (isAdminMode) {
                     if (item.isPending) {
                         actionsHtml += `
-                            <button onclick="approveItem('${item.id}')" class="flex-1 px-4 py-2 bg-amber-500 text-white text-xs font-bold rounded-lg hover:bg-amber-600 transition flex items-center justify-center gap-2 shadow-md">
+                            <button onclick="window.approveItem('${item.id}')" class="flex-1 px-4 py-2 bg-amber-500 text-white text-xs font-bold rounded-lg hover:bg-amber-600 transition flex items-center justify-center gap-2 shadow-md">
                                 <i class="fa-solid fa-circle-check"></i> 承認する
                             </button>
                         `;
                     }
                     actionsHtml += `
-                        <button onclick="deleteItem('${item.id}')" class="flex-1 px-4 py-2 bg-rose-50 text-rose-700 text-xs font-bold rounded-lg border border-rose-100 hover:bg-rose-600 hover:text-white hover:border-rose-600 transition flex items-center justify-center gap-2">
+                        <button onclick="window.deleteItem('${item.id}')" class="flex-1 px-4 py-2 bg-rose-50 text-rose-700 text-xs font-bold rounded-lg border border-rose-100 hover:bg-rose-600 hover:text-white hover:border-rose-600 transition flex items-center justify-center gap-2">
                             <i class="fa-solid fa-trash"></i> 削除
                         </button>
                     `;
@@ -965,14 +1060,14 @@
                     <div class="p-4 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-r from-white to-slate-50/30">
                         <div class="flex-1">
                             <div class="flex items-center gap-2 mb-2">
-                                <span class="bg-indigo-100 text-indigo-700 text-[10px] px-2 py-0.5 rounded-md font-bold border border-indigo-200">${item.area || '未設定'}</span>
-                                <span class="text-slate-400 text-[10px] font-mono">ID: ${item.id}</span>
+                                <span class="bg-indigo-100 text-indigo-700 text-[10px] px-2 py-0.5 rounded-md font-bold border border-indigo-200">${escapeHTML(item.area || '未設定')}</span>
+                                <span class="text-slate-400 text-[10px] font-mono">ID: ${escapeHTML(item.id)}</span>
                                 ${pendingBadge}
                             </div>
-                            <h4 class="text-lg font-bold text-slate-900 tracking-tight">${item.company}</h4>
+                            <h4 class="text-lg font-bold text-slate-900 tracking-tight">${escapeHTML(item.company)}</h4>
                             <div class="mt-2 space-y-1 text-xs text-slate-500">
-                                <div class="flex items-start gap-2"><i class="fa-solid fa-map-location-dot mt-0.5 w-3 text-slate-400"></i><span>${item.zip ? '〒'+item.zip : ''} ${item.address}</span></div>
-                                ${item.tel ? `<div class="flex items-center gap-2"><i class="fa-solid fa-phone w-3 text-slate-400"></i> ${item.tel}</div>` : ''}
+                                <div class="flex items-start gap-2"><i class="fa-solid fa-map-location-dot mt-0.5 w-3 text-slate-400"></i><span>${item.zip ? '〒'+escapeHTML(item.zip) : ''} ${escapeHTML(item.address)}</span></div>
+                                ${item.tel ? `<div class="flex items-center gap-2"><i class="fa-solid fa-phone w-3 text-slate-400"></i> ${escapeHTML(item.tel)}</div>` : ''}
                             </div>
                             ${docsHtml}
                         </div>
@@ -982,14 +1077,13 @@
                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                             ${workersHtml}
                         </div>
-                        ${item.remarks ? `<div class="mt-2 p-3 bg-amber-50/50 rounded-lg border border-amber-100 text-[11px] text-amber-800 leading-relaxed"><i class="fa-solid fa-circle-info mr-1 text-amber-600"></i>${item.remarks.replace(/\n/g, '<br>')}</div>` : ''}
+                        ${item.remarks ? `<div class="mt-2 p-3 bg-amber-50/50 rounded-lg border border-amber-100 text-[11px] text-amber-800 leading-relaxed"><i class="fa-solid fa-circle-info mr-1 text-amber-600"></i>${escapeHTML(item.remarks).replace(/\n/g, '<br>')}</div>` : ''}
                     </div>
                 `;
                 container.appendChild(card);
             });
         }
 
-        // --- 複数選択された担当者情報のコピペ用作成 ---
         function copySelectedWorkersMail(id) {
             const item = items.find(i => i.id === id);
             if (!item) return;
@@ -1001,7 +1095,7 @@
             let selectedWorkersText = '';
             let count = 1;
             
-            item.workers.forEach((w, idx) => {
+            (item.workers || []).forEach((w, idx) => {
                 if (selectedWorkerIndices.has(idx)) {
                     selectedWorkersText += `・担当者${count}:${w.name || '---'}\n　連絡先:${w.phone || '---'}\n\n`;
                     count++;
@@ -1040,18 +1134,11 @@ ${selectedWorkersText.trim()}
 車番:${carNumber}
 サイズ:${sizeStr}`;
 
-            const tempTextArea = document.createElement('textarea');
-            tempTextArea.value = formattedText;
-            document.body.appendChild(tempTextArea);
-            tempTextArea.select();
-            document.execCommand('copy');
-            document.body.removeChild(tempTextArea);
-
+            copyTextToClipboard(formattedText);
             showToast(`${item.company} の選択した作業員のメール用データをコピーしました！`);
             cancelSelectionMode(); 
         }
 
-        // --- 単一担当者(代表のみ)メール用コピペ ---
         function copyMailFormat(id) {
             const item = items.find(i => i.id === id);
             if (!item) return;
@@ -1094,50 +1181,40 @@ ${selectedWorkersText}
 車番:${carNumber}
 サイズ:${sizeStr}`;
 
+            copyTextToClipboard(formattedText);
+            showToast(`${item.company} の連絡メール用データをコピーしました！`);
+        }
+
+        function copyTextToClipboard(text) {
             const tempTextArea = document.createElement('textarea');
-            tempTextArea.value = formattedText;
+            tempTextArea.value = text;
             document.body.appendChild(tempTextArea);
             tempTextArea.select();
             document.execCommand('copy');
             document.body.removeChild(tempTextArea);
-
-            showToast(`${item.company} の連絡メール用データをコピーしました！`);
         }
 
-        // --- 管理者承認 ---
-        function approveItem(id) {
+        async function approveItem(id) {
             if (!isAdminMode) return;
-            const idx = items.findIndex(i => i.id === id);
-            if (idx !== -1) {
-                items[idx].isPending = false;
-                save();
+            const item = items.find(i => i.id === id);
+            if (item) {
+                item.isPending = false;
+                await saveItemToCloud(item);
                 renderList();
                 showToast('変更内容を承認しました！');
             }
         }
 
-        // 保存
-        function save() { 
-            try {
-                localStorage.setItem('worker_vehicle_full_db_v2', JSON.stringify(items)); 
-            } catch(e) {
-                console.error("Local storage saving failed", e);
-            }
-        }
-        
-        // 削除 (confirmの安全な代替を独自モーダル化)
-        function deleteItem(id) {
+        async function deleteItem(id) {
             if (!isAdminMode) return;
-            openModal('データの完全削除', 'このデータをシステムデータベースから完全に削除しますか？\n元には戻せません。', () => {
-                items = items.filter(i => i.id !== id);
-                save(); 
+            openModal('データの完全削除', 'このデータをシステムデータベースから完全に削除しますか？\n元には戻せません。', async () => {
+                await removeItemFromCloud(id);
                 renderList();
                 closeModal();
                 showToast('データを削除しました');
             }, '削除実行');
         }
 
-        // 編集
         function editItem(id) {
             const item = items.find(i => i.id === id);
             if (!item) return;
@@ -1149,7 +1226,6 @@ ${selectedWorkersText}
             document.getElementById('landline').value = item.tel || '';
             document.getElementById('remarks').value = item.remarks || '';
             
-            // 資料入力フィールドの再現
             const docContainer = document.getElementById('doc-fields-container');
             docContainer.innerHTML = '';
             if (item.docs && item.docs.length > 0) {
@@ -1158,7 +1234,6 @@ ${selectedWorkersText}
                 addDocField();
             }
 
-            // 作業員入力フィールドの再現
             const workerContainer = document.getElementById('worker-fields-container');
             workerContainer.innerHTML = '';
             if (item.workers && item.workers.length > 0) {
@@ -1168,26 +1243,27 @@ ${selectedWorkersText}
             }
             
             document.getElementById('form-title').innerHTML = '<i class="fa-solid fa-edit text-amber-600"></i> データを編集中';
-            document.getElementById('submit-btn').querySelector('span').textContent = '更新を保存する';
+            document.getElementById('submit-btn').querySelector('span').textContent = 'クラウド上の更新を保存';
             document.getElementById('cancel-edit').classList.remove('hidden');
             
             toggleFormSidebar(true);
             document.getElementById('form-sidebar').scrollTo({ top: 0, behavior: 'smooth' });
         }
 
-        // 復元
-        function resetToInitial() {
+        async function resetToInitial() {
             if (!isAdminMode) return;
-            openModal('初期設定に復元', '現在のデータベースを初期の34社構成にリセットします。\n追加・編集された内容は破棄されますが、よろしいですか？', () => {
-                items = excelFullData.map(item => ({ ...item, isPending: false, docs: item.docs || [] }));
-                save();
-                renderList();
+            openModal('初期設定に復元', '現在のデータベースを初期の34社構成にリセットします。\n追加・編集された内容は破棄されますが、よろしいですか？', async () => {
+                // 既存削除
+                for (const i of items) {
+                    await removeItemFromCloud(i.id);
+                }
+                // 初期化
+                await seedInitialDataToCloud();
                 closeModal();
                 showToast('初期データに復元しました');
             }, '復元実行');
         }
 
-        // --- エクスポートモーダル開閉 ---
         function openExportChoiceModal() {
             document.getElementById('export-choice-modal').classList.remove('hidden');
         }
@@ -1196,9 +1272,8 @@ ${selectedWorkersText}
             document.getElementById('export-choice-modal').classList.add('hidden');
         }
 
-        // 1. Excel (CSVダウンロード) 機能
         function downloadAsExcelCSV() {
-            let csvContent = "\uFEFF"; // Excel用のUTF-8 BOM
+            let csvContent = "\uFEFF"; 
             csvContent += "ID,エリア,所属会社,郵便番号,住所,固定電話,備考,関連資料,作業員氏名,携帯番号,車両情報\n";
             
             items.forEach(item => {
@@ -1219,7 +1294,6 @@ ${selectedWorkersText}
             const link = document.createElement("a");
             link.setAttribute("href", url);
             link.setAttribute("download", "作業員・車両情報データベース.csv");
-            link.style.visibility = 'hidden';
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -1228,7 +1302,6 @@ ${selectedWorkersText}
             showToast("Excel用CSVデータをダウンロードしました！");
         }
 
-        // 2. Googleスプレッドシート貼付用 (TSVコピー)
         function copyForGoogleSheets() {
             let tsvContent = "ID\tエリア\t所属会社\t郵便番号\t住所\t固定電話\t備考\t関連資料\t作業員氏名\t携帯番号\t車両情報\n";
             
@@ -1245,21 +1318,14 @@ ${selectedWorkersText}
                 }
             });
 
-            const tempTextArea = document.createElement('textarea');
-            tempTextArea.value = tsvContent;
-            document.body.appendChild(tempTextArea);
-            tempTextArea.select();
-            document.execCommand('copy');
-            document.body.removeChild(tempTextArea);
-            
+            copyTextToClipboard(tsvContent);
             closeExportChoiceModal();
             showToast("Googleスプレッドシート用データをコピーしました！");
         }
 
-        // 3. PDF出力 (A4横サイズ 印刷用テーブルPDF化)
         function printAsPDF() {
             closeExportChoiceModal();
-            showToast("Excel風テーブルPDFを作成しています。少しお待ちください...", "warning");
+            showToast("PDFを作成しています...", "warning");
 
             let tableRowsHtml = "";
             const search = document.getElementById('search-input').value.toLowerCase();
@@ -1267,18 +1333,15 @@ ${selectedWorkersText}
                 const docsText = (item.docs || []).map(d => d.name).join(' ');
                 const text = [
                     item.area, item.company, item.address, item.remarks, docsText,
-                    ...item.workers.map(w => (w.name || '') + (w.phone || '') + (w.car || ''))
+                    ...(item.workers || []).map(w => (w.name || '') + (w.phone || '') + (w.car || ''))
                 ].join(' ').toLowerCase();
                 return text.includes(search);
             });
 
             filteredItems.forEach(item => {
-                const validWorkers = item.workers.filter(w => 
-                    (w.name && w.name.trim()) || 
-                    (w.phone && w.phone.trim()) || 
-                    (w.car && w.car.trim())
+                const validWorkers = (item.workers || []).filter(w => 
+                    (w.name && w.name.trim()) || (w.phone && w.phone.trim()) || (w.car && w.car.trim())
                 );
-                
                 const rowCount = validWorkers.length > 0 ? validWorkers.length : 1;
                 
                 for (let i = 0; i < rowCount; i++) {
@@ -1323,7 +1386,7 @@ ${selectedWorkersText}
             tempDiv.innerHTML = `
                 <div style="font-family: 'Noto Sans JP', sans-serif;">
                     <div style="display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #1e3a8a; padding-bottom: 6px; margin-bottom: 12px;">
-                        <h2 style="font-size: 18px; font-weight: bold; color: #1e3a8a; margin: 0; padding: 0;">作業員・車両情報 登録一覧表 (横型)</h2>
+                        <h2 style="font-size: 18px; font-weight: bold; color: #1e3a8a; margin: 0; padding: 0;">作業員・車両情報 登録一覧表</h2>
                         <span style="font-size: 9px; color: #64748b; margin: 0; padding: 0;">出力日時: ${nowStr}</span>
                     </div>
                     <table style="width: 100%; border-collapse: collapse; border: 1.5px solid #334155; background-color: #ffffff; table-layout: fixed;">
@@ -1338,9 +1401,7 @@ ${selectedWorkersText}
                                 <th style="border: 1.5px solid #334155; padding: 8px; font-size: 10px; font-weight: bold; width: 11%;">備考</th>
                             </tr>
                         </thead>
-                        <tbody>
-                            ${tableRowsHtml}
-                        </tbody>
+                        <tbody>${tableRowsHtml}</tbody>
                     </table>
                 </div>
             `;
@@ -1354,396 +1415,246 @@ ${selectedWorkersText}
             };
 
             html2pdf().set(opt).from(tempDiv).save().then(() => {
-                showToast("Excel風テーブルPDFが正常にダウンロードされました！");
+                showToast("PDFがダウンロードされました！");
             }).catch(err => {
                 console.error("html2pdfエラー:", err);
-                showToast("自動PDF化に失敗しました。印刷ダイアログを使用します...", "warning");
-                setTimeout(() => {
-                    window.print();
-                }, 1000);
+                window.print();
             });
         }
 
-        // 4. システム用JSONデータエクスポート
         function exportJSONData() {
             closeExportChoiceModal();
             openModal('全データ出力 (JSON形式)', JSON.stringify(items, null, 2), () => {
                 const ta = document.getElementById('modal-textarea');
                 ta.select(); 
-                document.execCommand('copy');
-                const btn = document.getElementById('modal-action-btn');
-                const originalText = btn.textContent;
-                btn.textContent = 'コピー完了！';
-                btn.className = 'px-6 py-2.5 bg-emerald-600 text-white rounded-lg font-bold text-sm shadow-md transition';
-                setTimeout(() => {
-                    btn.textContent = originalText;
-                    btn.className = 'px-6 py-2.5 bg-indigo-600 text-white rounded-lg font-bold text-sm hover:bg-indigo-700 shadow-md transition';
-                    closeModal();
-                }, 1500);
+                copyTextToClipboard(ta.value);
+                showToast("JSONデータをクリップボードにコピーしました");
+                closeModal();
             }, '全コピー');
         }
 
-        // --- インポートモーダルの展開 ---
         function openImportModal() {
             if (!isAdminMode) return;
-            
-            document.getElementById('modal-title').textContent = "データのインポート (Excel / CSV / JSON)";
+            document.getElementById('modal-title').textContent = "データインポート (Excel/CSV/JSON)";
+            document.getElementById('modal-login-container').classList.add('hidden');
+            document.getElementById('modal-dashboard-container').classList.add('hidden');
+            document.getElementById('modal-import-container').classList.remove('hidden');
             document.getElementById('modal-textarea').classList.remove('hidden');
             document.getElementById('modal-textarea').value = "";
-            document.getElementById('modal-textarea').placeholder = "ここにバックアップしたJSONテキストを直接貼り付けてインポートすることもできます。";
-            
-            document.getElementById('modal-login-container').classList.add('hidden');
-            document.getElementById('modal-dashboard-container').classList.add('hidden'); 
-            document.getElementById('modal-import-container').classList.remove('hidden'); 
             document.getElementById('modal-overlay').classList.remove('hidden');
             
-            document.getElementById('import-file-input').value = "";
-            
             const btn = document.getElementById('modal-action-btn');
-            btn.textContent = "貼付けJSONから読み込む"; 
-            btn.onclick = () => {
-                const text = document.getElementById('modal-textarea').value.trim();
-                if (!text) {
-                    showToast('JSONテキストを入力するか、ファイルを読み込んでください。', 'warning');
-                    return;
-                }
-                try {
-                    const json = JSON.parse(text);
-                    processImportedJSON(json);
-                } catch(e) { 
-                    showToast('JSONの解析に失敗しました。正しい形式かご確認ください。', 'warning'); 
-                }
-            };
+            btn.textContent = "インポート実行";
+            btn.onclick = executeTextImport;
         }
 
-        // --- アップロードファイルの自動解析 ---
-        function handleFileImport(event) {
-            const file = event.target.files[0];
+        function closeModal() {
+            document.getElementById('modal-overlay').classList.add('hidden');
+        }
+
+        function openModal(title, textValue, actionFn, actionBtnText = "実行") {
+            document.getElementById('modal-title').textContent = title;
+            document.getElementById('modal-login-container').classList.add('hidden');
+            document.getElementById('modal-import-container').classList.add('hidden');
+            document.getElementById('modal-dashboard-container').classList.add('hidden');
+            document.getElementById('modal-textarea').classList.remove('hidden');
+            document.getElementById('modal-textarea').value = textValue;
+            document.getElementById('modal-overlay').classList.remove('hidden');
+
+            const btn = document.getElementById('modal-action-btn');
+            btn.textContent = actionBtnText;
+            btn.onclick = actionFn;
+        }
+
+        // テキストエリアのJSON直接インポート
+        async function executeTextImport() {
+            const val = document.getElementById('modal-textarea').value.trim();
+            if (!val) {
+                showToast("データが入力されていません", "warning");
+                return;
+            }
+            try {
+                const parsed = JSON.parse(val);
+                if (Array.isArray(parsed)) {
+                    await processParsedData(parsed);
+                } else {
+                    showToast("配列形式のJSONを指定してください", "warning");
+                }
+            } catch(e) {
+                showToast("JSONのパースに失敗しました。構造を確認してください", "warning");
+            }
+        }
+
+        // ファイルドロップ / 選択 インポート
+        async function handleFileImport(e) {
+            const file = e.target.files[0];
             if (!file) return;
 
-            const reader = new FileReader();
-            const extension = file.name.split('.').pop().toLowerCase();
-
-            showToast("ファイルを解析しています...", "warning");
-
-            if (extension === 'json') {
-                reader.onload = function(e) {
+            const fileName = file.name.toLowerCase();
+            if (fileName.endsWith('.json')) {
+                const reader = new FileReader();
+                reader.onload = async (evt) => {
                     try {
-                        const json = JSON.parse(e.target.result);
-                        processImportedJSON(json);
-                    } catch (err) {
-                        showToast('JSONファイルの解析に失敗しました。', 'warning');
+                        const parsed = JSON.parse(evt.target.result);
+                        if (Array.isArray(parsed)) {
+                            await processParsedData(parsed);
+                        } else {
+                            showToast("JSON配列形式を指定してください", "warning");
+                        }
+                    } catch(err) {
+                        showToast("JSON読み込み失敗", "warning");
                     }
                 };
                 reader.readAsText(file);
-            } else if (extension === 'csv' || extension === 'xlsx' || extension === 'xls') {
-                reader.onload = function(e) {
+            } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || fileName.endsWith('.csv')) {
+                const reader = new FileReader();
+                reader.onload = async (evt) => {
                     try {
-                        const data = new Uint8Array(e.target.result);
+                        const data = new Uint8Array(evt.target.result);
                         const workbook = XLSX.read(data, { type: 'array' });
                         const firstSheetName = workbook.SheetNames[0];
                         const worksheet = workbook.Sheets[firstSheetName];
-                        
-                        const sheetData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-                        processImportedSheet(sheetData);
-                    } catch (err) {
-                        console.error("SheetJS解析エラー:", err);
-                        showToast('Excel/CSVファイルの解析に失敗しました。', 'warning');
+                        const jsonRows = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+
+                        const formattedData = convertSheetRowsToData(jsonRows);
+                        await processParsedData(formattedData);
+                    } catch(err) {
+                        console.error("Sheet parsing error:", err);
+                        showToast("表ファイルの解析に失敗しました", "warning");
                     }
                 };
                 reader.readAsArrayBuffer(file);
             } else {
-                showToast('対応ファイル形式は Excel(.xlsx, .xls)、CSV(.csv)、JSON(.json) です。', 'warning');
+                showToast("未対応のファイル形式です (.xlsx, .xls, .csv, .json)", "warning");
             }
         }
 
-        // --- 差分比較、ログ作成処理 ---
-        function calculateAndShowDiff(newItems) {
-            let addedCount = 0;
-            let updatedCount = 0;
-            let unchangedCount = 0;
-            const logEntries = [];
-
-            const totalWorkersCount = newItems.reduce((sum, item) => sum + (item.workers ? item.workers.length : 0), 0);
-
-            newItems.forEach(newItem => {
-                const oldItem = items.find(old => old.company.toLowerCase() === newItem.company.toLowerCase());
-
-                if (!oldItem) {
-                    addedCount++;
-                    logEntries.push({
-                        type: 'add',
-                        company: newItem.company,
-                        message: `新規追加 [エリア: ${newItem.area} | 作業員数: ${newItem.workers.length}名]`
-                    });
-                } else {
-                    const isMetadataChanged = oldItem.address !== newItem.address || 
-                                              oldItem.tel !== newItem.tel || 
-                                              oldItem.area !== newItem.area ||
-                                              oldItem.remarks !== newItem.remarks;
-                    
-                    const isWorkersChanged = JSON.stringify(oldItem.workers) !== JSON.stringify(newItem.workers);
-
-                    if (isMetadataChanged || isWorkersChanged) {
-                        updatedCount++;
-                        let detailMsg = '';
-                        if (isMetadataChanged && isWorkersChanged) detailMsg = '基本情報 & 作業員の変更';
-                        else if (isMetadataChanged) detailMsg = '基本情報(住所・TEL等)の更新';
-                        else if (isWorkersChanged) detailMsg = '作業員・車両情報の更新';
-
-                        logEntries.push({
-                            type: 'update',
-                            company: newItem.company,
-                            message: `上書き更新 [${detailMsg}]`
-                        });
-                    } else {
-                        unchangedCount++;
-                        logEntries.push({
-                            type: 'unchanged',
-                            company: newItem.company,
-                            message: `変更なし`
-                        });
-                    }
-                }
-            });
-
-            items.forEach(oldItem => {
-                const stillExists = newItems.some(newItem => newItem.company.toLowerCase() === oldItem.company.toLowerCase());
-                if (!stillExists) {
-                    logEntries.push({
-                        type: 'remove',
-                        company: oldItem.company,
-                        message: `既存のインポート外データ`
-                    });
-                }
-            });
-
-            document.getElementById('dash-total-companies').textContent = `${newItems.length} 社`;
-            document.getElementById('dash-new-companies').textContent = `${addedCount} 社`;
-            document.getElementById('dash-updated-companies').textContent = `${updatedCount} 社`;
-            document.getElementById('dash-total-workers').textContent = `${totalWorkersCount} 名`;
-
-            const logContainer = document.getElementById('dash-log-list');
-            logContainer.innerHTML = '';
-            
-            logEntries.sort((a, b) => {
-                const priority = { add: 1, update: 2, remove: 3, unchanged: 4 };
-                return priority[a.type] - priority[b.type];
-            });
-
-            if (logEntries.length === 0) {
-                logContainer.innerHTML = `<div class="p-3 text-slate-400 text-center">変更データはありません。</div>`;
-            } else {
-                logEntries.forEach(log => {
-                    let badgeClass = '';
-                    let badgeLabel = '';
-                    if (log.type === 'add') {
-                        badgeClass = 'bg-emerald-100 text-emerald-800';
-                        badgeLabel = '新規追加';
-                    } else if (log.type === 'update') {
-                        badgeClass = 'bg-amber-100 text-amber-800';
-                        badgeLabel = '更新';
-                    } else if (log.type === 'remove') {
-                        badgeClass = 'bg-slate-100 text-slate-500 line-through';
-                        badgeLabel = '不一致';
-                    } else {
-                        badgeClass = 'bg-slate-100 text-slate-600';
-                        badgeLabel = '変更なし';
-                    }
-
-                    const div = document.createElement('div');
-                    div.className = 'p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 hover:bg-slate-50';
-                    div.innerHTML = `
-                        <div class="flex items-center gap-2">
-                            <span class="px-2 py-0.5 rounded text-[10px] font-bold ${badgeClass}">${badgeLabel}</span>
-                            <span class="font-bold text-slate-700">${escapeHTML(log.company)}</span>
-                        </div>
-                        <span class="text-slate-500 text-[10px] sm:text-right font-normal">${escapeHTML(log.message)}</span>
-                    `;
-                    logContainer.appendChild(div);
-                });
-            }
-
-            document.getElementById('modal-title').textContent = "インポート結果ダッシュボード";
-            document.getElementById('modal-textarea').classList.add('hidden');
-            document.getElementById('modal-login-container').classList.add('hidden');
-            document.getElementById('modal-import-container').classList.add('hidden');
-            document.getElementById('modal-dashboard-container').classList.remove('hidden');
-
-            const btn = document.getElementById('modal-action-btn');
-            btn.textContent = "確認完了";
-            btn.onclick = closeModal;
-
-            items = newItems;
-            save();
-            renderList();
-        }
-
-        // --- シート形式データの読み込みと連係マッピング ---
-        function processImportedSheet(sheetData) {
-            if (sheetData.length < 2) {
-                showToast('データが不足しているか、空のファイルです。', 'warning');
-                return;
-            }
-
-            const headers = sheetData[0].map(h => String(h || '').trim());
-            
-            const idx = {
-                id: headers.findIndex(h => h.includes('ID') || h.includes('id')),
-                area: headers.findIndex(h => h.includes('エリア') || h.includes('地域')),
-                company: headers.findIndex(h => h.includes('所属会社') || h.includes('会社名') || h.includes('社名')),
-                zip: headers.findIndex(h => h.includes('郵便番号') || h.includes('郵便')),
-                address: headers.findIndex(h => h.includes('住所') || h.includes('所在地')),
-                tel: headers.findIndex(h => h.includes('固定電話') || h.includes('TEL') || h.includes('電話')),
-                remarks: headers.findIndex(h => h.includes('備考') || h.includes('特記事項')),
-                docs: headers.findIndex(h => h.includes('関連資料') || h.includes('資料')),
-                workerName: headers.findIndex(h => h.includes('作業員氏名') || h.includes('担当者') || h.includes('氏名') || h.includes('名前')),
-                workerPhone: headers.findIndex(h => h.includes('携帯') || h.includes('電話番号') || h.includes('連絡先')),
-                workerCar: headers.findIndex(h => h.includes('車両') || h.includes('車番') || h.includes('ナンバー'))
-            };
-
-            if (idx.id === -1) idx.id = 0;
-            if (idx.area === -1) idx.area = 1;
-            if (idx.company === -1) idx.company = 2;
-            if (idx.zip === -1) idx.zip = 3;
-            if (idx.address === -1) idx.address = 4;
-            if (idx.tel === -1) idx.tel = 5;
-            if (idx.remarks === -1) idx.remarks = 6;
-            if (idx.docs === -1) idx.docs = 7;
-            if (idx.workerName === -1) idx.workerName = 8;
-            if (idx.workerPhone === -1) idx.workerPhone = 9;
-            if (idx.workerCar === -1) idx.workerCar = 10;
-
+        // Excel/CSV行構造の自動マッピング変換
+        function convertSheetRowsToData(rows) {
             const companyMap = new Map();
 
-            for (let r = 1; r < sheetData.length; r++) {
-                const row = sheetData[r];
-                if (!row || row.length === 0) continue;
+            rows.forEach((row, idx) => {
+                const company = row['所属会社'] || row['所属会社名'] || row['会社名'] || row['会社'] || '';
+                if (!company) return;
 
-                const companyName = String(row[idx.company] || '').trim();
-                if (!companyName) continue;
-
-                let id = String(row[idx.id] || '').trim();
-                if (!id || id === '---') {
-                    id = 'imported_' + r + '_' + Date.now();
-                }
-
-                const area = String(row[idx.area] || '').trim();
-                const zip = String(row[idx.zip] || '').trim();
-                const address = String(row[idx.address] || '').trim();
-                const tel = String(row[idx.tel] || '').trim();
-                const remarks = String(row[idx.remarks] || '').trim();
-                const docsRaw = String(row[idx.docs] || '').trim();
+                const area = row['エリア'] || row['地域'] || '未設定';
+                const zip = row['郵便番号'] || row['〒'] || '';
+                const address = row['住所'] || row['所在地'] || '';
+                const tel = row['固定電話'] || row['TEL'] || row['電話番号'] || '';
+                const remarks = row['備考'] || row['特記事項'] || '';
                 
-                const workerName = String(row[idx.workerName] || '').trim();
-                const workerPhone = String(row[idx.workerPhone] || '').trim();
-                const workerCar = String(row[idx.workerCar] || '').trim();
+                const workerName = row['作業員氏名'] || row['担当者名'] || row['氏名'] || row['作業員'] || '';
+                const workerPhone = row['携帯番号'] || row['携帯'] || row['連絡先'] || '';
+                const workerCar = row['車両情報'] || row['車両'] || row['車番'] || '';
 
-                const docs = [];
-                if (docsRaw) {
-                    const docParts = docsRaw.split('|');
-                    docParts.forEach(p => {
-                        const match = p.trim().match(/^(excel|spreadsheet|pdf)\(([^)]+)\)$/i);
-                        if (match) {
-                            docs.push({ type: match[1].toLowerCase(), name: match[2], url: '#' });
-                        } else if (p.trim()) {
-                            docs.push({ type: 'excel', name: p.trim(), url: '#' });
-                        }
-                    });
-                }
-
-                let compKey = id;
-                const existingKey = Array.from(companyMap.keys()).find(k => {
-                    const c = companyMap.get(k);
-                    return c.company === companyName;
-                });
-                if (existingKey) {
-                    compKey = existingKey;
-                }
-
-                if (!companyMap.has(compKey)) {
-                    companyMap.set(compKey, {
-                        id: id,
-                        area: area || '未設定',
-                        company: companyName,
-                        zip: zip,
-                        address: address,
-                        tel: tel,
-                        remarks: remarks,
-                        docs: docs,
+                if (!companyMap.has(company)) {
+                    companyMap.set(company, {
+                        id: (Date.now() + idx).toString(),
+                        area, company, zip, address, tel, remarks,
+                        docs: [],
                         workers: [],
                         isPending: false
                     });
                 }
 
-                const comp = companyMap.get(compKey);
-
+                const entry = companyMap.get(company);
                 if (workerName || workerPhone || workerCar) {
-                    const isDuplicate = comp.workers.some(w => w.name === workerName && w.phone === workerPhone && w.car === workerCar);
-                    if (!isDuplicate) {
-                        comp.workers.push({
-                            name: workerName,
-                            phone: workerPhone,
-                            car: workerCar
-                        });
-                    }
+                    entry.workers.push({ name: workerName, phone: workerPhone, car: workerCar });
+                }
+            });
+
+            return Array.from(companyMap.values());
+        }
+
+        // 解析後データのクラウド保存およびログ作成
+        async function processParsedData(importedItems) {
+            let newCompaniesCount = 0;
+            let updatedCompaniesCount = 0;
+            let totalWorkersCount = 0;
+            const logs = [];
+
+            for (const item of importedItems) {
+                if (!item.company) continue;
+
+                const existingIdx = items.findIndex(i => i.company === item.company);
+                const targetId = existingIdx !== -1 ? items[existingIdx].id : (item.id || Date.now().toString() + Math.random().toString().substr(2,4));
+
+                const formatted = {
+                    id: targetId,
+                    area: item.area || '未設定',
+                    company: item.company,
+                    zip: item.zip || '',
+                    address: item.address || '',
+                    tel: item.tel || '',
+                    remarks: item.remarks || '',
+                    docs: item.docs || [],
+                    workers: item.workers || [],
+                    isPending: false
+                };
+
+                await saveItemToCloud(formatted);
+
+                const validWorkers = (formatted.workers || []).length;
+                totalWorkersCount += validWorkers;
+
+                if (existingIdx !== -1) {
+                    updatedCompaniesCount++;
+                    logs.push(`<div class="py-1 text-amber-700"><b>[更新]</b> ${escapeHTML(item.company)} (作業員 ${validWorkers} 名)</div>`);
+                } else {
+                    newCompaniesCount++;
+                    logs.push(`<div class="py-1 text-emerald-700"><b>[新規]</b> ${escapeHTML(item.company)} (作業員 ${validWorkers} 名)</div>`);
                 }
             }
 
-            const importedItems = Array.from(companyMap.values());
-            if (importedItems.length === 0) {
-                showToast('有効なデータを検出できませんでした。', 'warning');
-                return;
-            }
+            renderList();
 
-            calculateAndShowDiff(importedItems);
-        }
-
-        // --- JSONインポートの実行処理 ---
-        function processImportedJSON(json) {
-            if (Array.isArray(json)) {
-                const importedItems = json.map(item => ({
-                    ...item,
-                    isPending: item.isPending !== undefined ? item.isPending : false,
-                    docs: item.docs || []
-                }));
-                calculateAndShowDiff(importedItems);
-            } else { 
-                showToast('JSONフォーマットが正しくありません。', 'warning'); 
-            }
-        }
-
-        // --- 汎用モーダル表示ファンクション ---
-        function openModal(title, text, callback, label) {
-            document.getElementById('modal-title').textContent = title;
-            document.getElementById('modal-textarea').classList.remove('hidden');
-            document.getElementById('modal-login-container').classList.add('hidden');
-            document.getElementById('modal-import-container').classList.add('hidden'); 
-            document.getElementById('modal-dashboard-container').classList.add('hidden'); 
-            document.getElementById('modal-textarea').value = text;
-            document.getElementById('modal-overlay').classList.remove('hidden');
-            const btn = document.getElementById('modal-action-btn');
-            btn.textContent = label; 
-            btn.onclick = callback;
-        }
-
-        function escapeHTML(str) {
-            if (typeof str !== 'string') return '';
-            return str.replace(/[&<>'"]/g, tag => ({
-                '&': '&amp;',
-                '<': '&lt;',
-                '>': '&gt;',
-                "'": '&#39;',
-                '"': '&quot;'
-            }[tag] || tag));
-        }
-
-        function closeModal() { 
-            document.getElementById('modal-overlay').classList.add('hidden'); 
+            // ダッシュボード更新
             document.getElementById('modal-import-container').classList.add('hidden');
-            document.getElementById('modal-dashboard-container').classList.add('hidden');
-            document.getElementById('modal-login-container').classList.add('hidden');
+            document.getElementById('modal-textarea').classList.add('hidden');
+            document.getElementById('modal-dashboard-container').classList.remove('hidden');
+
+            document.getElementById('dash-total-companies').textContent = items.length;
+            document.getElementById('dash-new-companies').textContent = newCompaniesCount;
+            document.getElementById('dash-updated-companies').textContent = updatedCompaniesCount;
+            document.getElementById('dash-total-workers').textContent = totalWorkersCount;
+
+            document.getElementById('dash-log-list').innerHTML = logs.length ? logs.join('') : '<div class="text-slate-400">ログはありません</div>';
+
+            const btn = document.getElementById('modal-action-btn');
+            btn.textContent = "完了";
+            btn.onclick = closeModal;
+
+            showToast("インポート処理が正常に終了しました！");
         }
+
+        window.toggleFormSidebar = toggleFormSidebar;
+        window.toggleAuthMode = toggleAuthMode;
+        window.openExportChoiceModal = openExportChoiceModal;
+        window.closeExportChoiceModal = closeExportChoiceModal;
+        window.openImportModal = openImportModal;
+        window.closeModal = closeModal;
+        window.resetToInitial = resetToInitial;
+        window.handleFormSubmit = handleFormSubmit;
+        window.resetForm = resetForm;
+        window.addWorkerField = addWorkerField;
+        window.addDocField = addDocField;
+        window.handleSearchInput = handleSearchInput;
+        window.clearSearch = clearSearch;
+        window.renderList = renderList;
+        window.startSelectionMode = startSelectionMode;
+        window.cancelSelectionMode = cancelSelectionMode;
+        window.toggleWorkerSelection = toggleWorkerSelection;
+        window.copySelectedWorkersMail = copySelectedWorkersMail;
+        window.copyMailFormat = copyMailFormat;
+        window.editItem = editItem;
+        window.deleteItem = deleteItem;
+        window.approveItem = approveItem;
+        window.downloadAsExcelCSV = downloadAsExcelCSV;
+        window.copyForGoogleSheets = copyForGoogleSheets;
+        window.printAsPDF = printAsPDF;
+        window.exportJSONData = exportJSONData;
+        window.handleFileImport = handleFileImport;
+        window.showToast = showToast;
     </script>
 </body>
 </html>
