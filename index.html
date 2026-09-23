@@ -390,24 +390,25 @@
 
         // --- Firebase 初期設定 ---
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'worker-vehicle-app-v1';
+        
+        // ★★★ ここをご自身のFirebase Consoleで取得した設定情報（Config）に置き換えてください ★★★
         const firebaseConfig = typeof __firebase_config !== 'undefined' 
             ? JSON.parse(__firebase_config) 
             : {
-                // デモ用フォールバック構成
-                apiKey: "AIzaSyAsDumG71u2mCJxJEC00Ibl-8JVS9yFS0Q",
-    authDomain: "worker-information2026.firebaseapp.com",
-    projectId: "worker-information2026",
-    storageBucket: "worker-information2026.firebasestorage.app",
-    messagingSenderId: "532860018239",
-    appId: "1:532860018239:web:117f9c4a5c09b0062d228a"
+                apiKey: "AIzaSyAsDumG71u2mCJxJEC00Ibl-8JVS9yFS0Q",                // 例: "AIzaSyD-xxxxxxxxxxxxxx"
+                authDomain: "worker-information2026.firebaseapp.com",
+                projectId: "worker-information2026",          // 例: "my-worker-app"
+                storageBucket: "worker-information2026.firebasestorage.app",
+                messagingSenderId: "532860018239",
+                appId: "1:532860018239:web:117f9c4a5c09b0062d228a"
             };
 
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
 
-        // クラウドデータ共有コレクションのパス宣言 (RULE 1 準拠)
-        const dbCollectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'worker_companies');
+        // クラウドデータ共有コレクションのパス宣言
+        const dbCollectionRef = collection(db, 'worker_companies');
 
         // --- アプリケーション状態 ---
         let items = [];
@@ -526,7 +527,7 @@
             ]}
         ];
 
-        // 認証およびFirestoreリアルタイム同期の開始 (RULE 3 準拠)
+        // 認証およびFirestoreリアルタイム同期の開始
         async function initCloudSync() {
             try {
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
