@@ -81,12 +81,12 @@
                     <i class="fa-solid fa-file-export"></i> データ出力 (Excel/PDF選択)
                 </button>
 
-                <!-- 管理用：インポートと復元 -->
+                <!-- 管理用：インポートとリセット -->
                 <button id="btn-import" onclick="openImportModal()" class="hidden bg-slate-700 hover:bg-slate-600 text-xs px-3 py-1.5 rounded-md flex items-center gap-1.5 transition border border-slate-500 shadow-sm font-bold">
                     <i class="fa-solid fa-file-import"></i> インポート
                 </button>
-                <button id="btn-reset" onclick="resetToInitial()" class="hidden bg-amber-600 hover:bg-amber-500 text-xs px-3 py-1.5 rounded-md flex items-center gap-1.5 transition shadow-sm font-bold">
-                    <i class="fa-solid fa-rotate-left"></i> 初期データに復元
+                <button id="btn-reset" onclick="resetAllData()" class="hidden bg-rose-700 hover:bg-rose-600 text-xs px-3 py-1.5 rounded-md flex items-center gap-1.5 transition shadow-sm font-bold">
+                    <i class="fa-solid fa-trash-can"></i> 全データクリア
                 </button>
 
                 <div class="border-l border-indigo-700 h-6 mx-1 hidden lg:block"></div>
@@ -101,7 +101,7 @@
 
     <main class="flex-1 overflow-hidden flex flex-col md:flex-row max-w-[1600px] w-full mx-auto relative">
         
-        <!-- 入力エリア（スマホ時でも確実にスクロールできるよう h-full max-h-full と下部余白を追加） -->
+        <!-- 入力エリア -->
         <aside id="form-sidebar" class="hidden w-full md:w-[420px] h-full max-h-full border-r border-slate-200 bg-white overflow-y-auto p-4 shrink-0 shadow-xl aside-transition z-20">
             <div class="flex justify-between items-center mb-4 border-b pb-2 sticky top-0 bg-white pt-1 z-10">
                 <h2 id="form-title" class="font-bold text-slate-700 flex items-center gap-2">
@@ -115,7 +115,6 @@
                 </div>
             </div>
 
-            <!-- スマホ画面下部のメニューバー被りを考慮して pb-16 を設定 -->
             <form id="main-form" onsubmit="handleFormSubmit(event)" class="space-y-4 pb-16 md:pb-6">
                 <input type="hidden" id="edit-id">
                 
@@ -386,13 +385,12 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { 
-            getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, getDocs 
+            getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot 
         } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- Firebase 初期設定 ---
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'worker-vehicle-app-v1';
         
-        // ★★★ ここをご自身のFirebase Consoleで取得した設定情報（Config）に置き換えてください ★★★
         const firebaseConfig = typeof __firebase_config !== 'undefined' 
             ? JSON.parse(__firebase_config) 
             : {
@@ -408,8 +406,8 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
 
-        // クラウドデータ共有コレクションのパス宣言
-        const dbCollectionRef = collection(db, 'worker_companies');
+        // クラウドデータ共有コレクションの参照 (認証後に設定)
+        let dbCollectionRef = null;
 
         // --- アプリケーション状態 ---
         let items = [];
@@ -427,107 +425,6 @@
             pdf: { icon: 'fa-file-pdf', color: 'text-rose-600 bg-rose-50 border-rose-200 hover:bg-rose-100', label: 'PDF資料' }
         };
 
-        // --- 初期マスターデータベース（34社データ） ---
-        const excelFullData = [
-            { id: "1", area: "北海道", company: "ファイテックシステム㈱", zip: "004-0803", address: "北海道札幌市清田区里塚3条4丁目1-8", tel: "", remarks: "", docs: [], workers: [{ name: "西村光博", phone: "090-9515-5638", car: "" }] },
-            { id: "2", area: "北海道", company: "ヤブシタ電設（株）", zip: "060-0006", address: "北海道札幌市中央区北6条西23丁目1-12", tel: "", remarks: "", docs: [], workers: [
-                { name: "江崎　恒太", phone: "080-9055-6169", car: "" },
-                { name: "澤山尚史", phone: "070-4799-7500", car: "" },
-                { name: "菊原太一郎", phone: "080-5107-4707", car: "" },
-                { name: "田村　隆史", phone: "080-6067-3593", car: "" }
-            ]},
-            { id: "3", area: "北海道", company: "八晃電気(株)", zip: "060-0031", address: "北海道札幌市中央区北一条東７丁目８０番１４", tel: "011-207-0688", remarks: "", docs: [], workers: [
-                { name: "柏原良明", phone: "090-8373-6386", car: "ダイハツ ハイゼット 札幌 480さ9796" },
-                { name: "竹谷具樹", phone: "090-5224-8482", car: "トヨタレジアスエース 札幌400み1272 スーパーGL" }
-            ]},
-            { id: "4", area: "青森", company: "有限会社 相内電気工事", zip: "038-0021", address: "青森県青森市安田字近野1-268", tel: "017-761-2086", remarks: "", docs: [], workers: [{ name: "對馬 しのぶ", phone: "090-2020-7902", car: "" }] },
-            { id: "5", area: "青森", company: "大和電業", zip: "039-1101", address: "青森県八户市尻内町字追分41-2", tel: "0178-27-4411", remarks: "", docs: [], workers: [
-                { name: "大石はじめ", phone: "090-6258-0887", car: "" },
-                { name: "大石亮太", phone: "080-5730-1404", car: "" }
-            ]},
-            { id: "6", area: "宮城", company: "㈱エンシン電気", zip: "986ｰ2266", address: "宮城県牡鹿郡女川町大原10-5", tel: "", remarks: "", docs: [], workers: [{ name: "遠藤", phone: "080-5226-9360", car: "" }] },
-            { id: "7", area: "宮城", company: "合名会社 ワタナベ", zip: "989-4102", address: "宮城県大崎市鹿島台木間塚字小谷地121-5", tel: "", remarks: "", docs: [], workers: [
-                { name: "庄子博明", phone: "090-1937-0513", car: "ステップワゴン 宮城301 め 32" },
-                { name: "円谷貴浩", phone: "080-3326-8677", car: "" }
-            ]},
-            { id: "8", area: "新潟", company: "㈱Ｂ ｗｏｒｋｓ", zip: "950ｰ0954", address: "新潟県新潟市中央区美咲町1-7-55 ソフィアミサキ1-F", tel: "", remarks: "髙橋拓也 090-5750-7181 / 横田和之 080-5174-3850", docs: [], workers: [
-                { name: "近藤", phone: "090-5536-8849", car: "" },
-                { name: "髙橋拓也", phone: "090-5750-7181", car: "ハイエース 長岡 400つ98-14" },
-                { name: "横田和之", phone: "080-5174-3850", car: "サクシード 新潟 400ぬ96-04" },
-                { name: "阿部貴也", phone: "", car: "ハイエース 新潟400 ね 54-22" }
-            ]},
-            { id: "9", area: "栃木", company: "Rekoh", zip: "322-0027", address: "栃木県鹿沼市貝島町5029-2", tel: "", docs: [], workers: [
-                { name: "秋山泰幸", phone: "090-7413-8474", car: "N-BOX 宇都宮 581 て96-30" },
-                { name: "川辺 芳宏", phone: "", car: "" }
-            ]},
-            { id: "10", area: "郡山", company: "岡部電設株式会社", zip: "963-8833", address: "福島県郡山市香久池二丁目6番15号", tel: "024-922-8020", remarks: "", docs: [], workers: [{ name: "佐藤", phone: "024-922-8020", car: "" }] },
-            { id: "11", area: "群馬", company: "㈱石電", zip: "963ｰ8833", address: "福島県郡山市香久池１丁目１７−１６", tel: "027-223-2588", remarks: "", docs: [], workers: [{ name: "石原光春", phone: "090-3148-8153", car: "ハイエース 群馬400 な 3780" }] },
-            { id: "12", area: "埼玉", company: "鳶 宇田川", zip: "340-0802", address: "埼玉県八潮市鶴ヶ曽根237-5", tel: "048-996-3847", remarks: "", docs: [], workers: [{ name: "宇田川 貴志郎", phone: "090-2248-4652", car: "ダイハツ ハイゼット 春日部430 も 65" }] },
-            { id: "13", area: "埼玉", company: "カトウ設備", zip: "335-0026", address: "埼玉県戸田市新曽南4-5-6-411", tel: "", remarks: "", docs: [], workers: [{ name: "加藤謙吾", phone: "080-4596-0206", car: "日産バネット NV200 大宮430 そ1704" }] },
-            { id: "14", area: "埼玉", company: "STS", zip: "333ｰ0807", address: "埼玉県川口市長蔵3-17-1", tel: "", remarks: "", docs: [], workers: [{ name: "高橋", phone: "", car: "" }] },
-            { id: "15", area: "埼玉", company: "大片電工", zip: "350ｰ1151", address: "埼玉県川越市今福253-8", tel: "", remarks: "", docs: [], workers: [{ name: "大片 譲", phone: "090-7171-6351", car: "" }] },
-            { id: "16", area: "東京", company: "T.D工業", zip: "144-0035", address: "東京都大田区南蒲田2‐13‐10ヴィラヒロキ303", tel: "03-6337-6182", remarks: "", docs: [], workers: [{ name: "高江洲 博之", phone: "080-7947ｰ7535", car: "ハイエース 品川460 に 712" }] },
-            { id: "17", area: "東京", company: "株式会社 金沢電気設備", zip: "141-0033", address: "東京都品川区西品川2-6-4", tel: "", remarks: "", docs: [], workers: [{ name: "岩崎 守之介", phone: "090-9593-6820", car: "" }] },
-            { id: "18", area: "横浜", company: "エコテクソリューション㈱", zip: "226-0004", address: "神奈川県横浜市緑区鴨居町805-3", tel: "", remarks: "", docs: [], workers: [{ name: "三富俊和", phone: "090-4099-4616", car: "キャラバン 品川 400 ふ 6366" }] },
-            { id: "19", area: "神奈川", company: "㈲筑波電器", zip: "221ｰ0042", address: "神奈川県横浜市神奈川区浦島町371", tel: "", remarks: "", docs: [], workers: [
-                { name: "豊崎光治", phone: "090-3047-9613", car: "" },
-                { name: "豊崎康平", phone: "", car: "" }
-            ]},
-            { id: "20", area: "神奈川", company: "（株）アローウエッジ", zip: "252-1114", address: "神奈川県綾瀬市上土棚南２丁目９−４１", tel: "0467-53-9123", remarks: "", docs: [], workers: [{ name: "山本", phone: "0467-53-9123", car: "" }] },
-            { id: "21", area: "富山", company: "㈱ビーマックス", zip: "930ｰ0816", address: "富山県富山市上赤江町2-2-67", tel: "", remarks: "", docs: [], workers: [
-                { name: "中村", phone: "080-2956-5510", car: "" },
-                { name: "中森康浩", phone: "", car: "" }
-            ]},
-            { id: "22", area: "石川", company: "（株）e-アシスト", zip: "924-0022", address: "石川県白山市相木町532番地6", tel: "", remarks: "サイズ:長さ4965×幅1695×高さ2100 積載量850kg", docs: [], workers: [
-                { name: "堀 泰幸", phone: "080-4251-1410", car: "石川430 ち ･･26 白ハイエース" },
-                { name: "永島 裕史", phone: "080-4254-1410", car: "石川400 ち 3109 ハイエース" }
-            ]},
-            { id: "23", area: "山梨", company: "㈱小松電工", zip: "400ｰ0027", address: "山梨県甲府市富士見2-8-21", tel: "", remarks: "", docs: [], workers: [{ name: "小松秀夫", phone: "090-3003-6254", car: "" }] },
-            { id: "24", area: "長野", company: "赤羽工芸㈱", zip: "399-4601", address: "長野県上伊那郡箕輪町中箕輪2668", tel: "", remarks: "複数名車両登録あり", docs: [], workers: [
-                { name: "赤羽", phone: "090-3403-6570", car: "" },
-                { name: "鈴木 聡志", phone: "080-1231-6625", car: "①松本401な・5（ハイエース）②キャラバン松本400た6340" },
-                { name: "高森 元気", phone: "090-6087-7820", car: "松本401 な・・5 ハイエース" },
-                { name: "髙森 優気", phone: "070-2014-4015", car: "トヨタ ハイエース 松本401 な0005" }
-            ]},
-            { id: "25", area: "静岡", company: "有限会社サンタ電工", zip: "431-0211", address: "静岡県浜松市西区舞阪2734-15", tel: "", remarks: "", docs: [], workers: [{ name: "内田善丈", phone: "090-3250-6031", car: "浜松 430 さ 8192" }] },
-            { id: "26", area: "愛知", company: "石井電工", zip: "497ｰ0005", address: "愛知県あま市七宝町伊福河原171-3", tel: "", remarks: "", docs: [], workers: [
-                { name: "石井幹雄", phone: "090-3385-6355", car: "ハイエース名古屋433さ310" },
-                { name: "佐藤武司", phone: "090-3303-2155", car: "ライトエース名古屋430の 312" }
-            ]},
-            { id: "27", area: "愛知", company: "㈲ケンデン", zip: "444ｰ0908", address: "岡崎市橋目町字久々見1-1", tel: "", remarks: "", docs: [], workers: [{ name: "田渕哲次", phone: "090-3256-8159", car: "" }] },
-            { id: "28", area: "大阪", company: "㈱上電", zip: "578-0944", address: "大阪府東大阪市若江西新町5-1-11", tel: "06-6730-9080", remarks: "", docs: [], workers: [
-                { name: "上村孝弘", phone: "090-3941-5790", car: "トヨタ ダイナ 大阪400 ひ 6248" },
-                { name: "清水敦夫", phone: "090-8195-9595", car: "ハイエース 大阪４３１ て27" },
-                { name: "高岡康弘", phone: "090-3495-8949", car: "" },
-                { name: "下川竜之介", phone: "080-1494-0415", car: "" }
-            ]},
-            { id: "29", area: "大阪", company: "株式会社YUITEC", zip: "590ｰ0127", address: "大阪府堺市南区富蔵596番地5", tel: "072-260-4604", remarks: "", docs: [], workers: [
-                { name: "吉本", phone: "072-260-4604", car: "" },
-                { name: "北尾さん", phone: "", car: "" },
-                { name: "西井孝季", phone: "", car: "" },
-                { name: "山内健之", phone: "", car: "" }
-            ]},
-            { id: "30", area: "兵庫", company: "(株)ジャパンライティング", zip: "650ｰ0025", address: "神戸市中央区相生町4丁目8-5", tel: "078-361-1001", remarks: "", docs: [], workers: [{ name: "福井正博", phone: "078-361-1001", car: "" }] },
-            { id: "31", area: "香川", company: "クマノ㈱", zip: "761-0444", address: "香川県高松市池田町483番地1", tel: "087-899-8097", remarks: "", docs: [], workers: [
-                { name: "熊野英治", phone: "090-1320-9660", car: "" },
-                { name: "中津悠輔", phone: "080-3924-5406", car: "" },
-                { name: "伊賀海斗", phone: "090-1324-0515", car: "" }
-            ]},
-            { id: "32", area: "福岡", company: "美翔電設", zip: "816-0807", address: "福岡県春日市宝町4丁目32-1 ドミール宝町 102号", tel: "", remarks: "", docs: [], workers: [{ name: "村井喜美", phone: "090-9721-5474", car: "ハイエース 福岡400 み 86 13" }] },
-            { id: "33", area: "宮崎", company: "株式会社RIZE / SPEC", zip: "889-1601", address: "宮崎県宮崎市清武町木原3599-7", tel: "", remarks: "RIZE山田 090-5735-2155, SPEC宮崎 090-3730-2329", docs: [], workers: [
-                { name: "山田 直幸", phone: "090-5735-2155", car: "ハイエース白 宮崎430 ぬ 8358 全長:4.7m/幅:1.7m/高:2.0m" },
-                { name: "宮崎 嘉春", phone: "090-3730-2329", car: "キャラバン 久留米400 81-53" },
-                { name: "宮崎 一路", phone: "090-7537-5481", car: "" }
-            ]},
-            { id: "34", area: "福岡", company: "株式会社FUJIC", zip: "812-0041", address: "福岡県博多区吉塚4-3-34", tel: "092-621-0234", remarks: "", docs: [], workers: [
-                { name: "宮崎 藤雄", phone: "080-5805-1462", car: "" },
-                { name: "村上伸也", phone: "080-2727-2332", car: "" },
-                { name: "河上秀晃", phone: "080-9248-5857", car: "" },
-                { name: "古賀たつや", phone: "090-8260-8803", car: "" },
-                { name: "日高隼人", phone: "080-5265-8890", car: "" }
-            ]}
-        ];
-
         // 認証およびFirestoreリアルタイム同期の開始
         async function initCloudSync() {
             try {
@@ -536,7 +433,12 @@
                 } else {
                     await signInAnonymously(auth);
                 }
+
+                if (!auth.currentUser) return;
                 
+                // Firestoreの推奨パス構造に準拠
+                dbCollectionRef = collection(db, 'artifacts', appId, 'public', 'data', 'worker_companies');
+
                 updateSyncUI(true, 'クラウド同期中');
 
                 // Firestoreのリアルタイム変更リスナー登録
@@ -546,13 +448,8 @@
                         cloudItems.push(docSnap.data());
                     });
 
-                    // 初回読み込みでクラウドデータが空の場合は初期34社を投入
-                    if (cloudItems.length === 0 && snapshot.metadata.fromCache === false) {
-                        seedInitialDataToCloud();
-                    } else {
-                        items = cloudItems.sort((a, b) => (parseInt(a.id) || 0) - (parseInt(b.id) || 0));
-                        renderList();
-                    }
+                    items = cloudItems.sort((a, b) => (parseInt(a.id) || 0) - (parseInt(b.id) || 0));
+                    renderList();
                 }, (error) => {
                     console.error("Firestore onSnapshot error:", error);
                     updateSyncUI(false, 'オフライン (ローカル表示)');
@@ -578,18 +475,6 @@
             }
         }
 
-        // 初期データの投入
-        async function seedInitialDataToCloud() {
-            try {
-                for (const item of excelFullData) {
-                    const formatted = { ...item, isPending: false, docs: item.docs || [] };
-                    await setDoc(doc(dbCollectionRef, formatted.id), formatted);
-                }
-            } catch(e) {
-                console.error("初期データの投入失敗:", e);
-            }
-        }
-
         // ローカルストレージ フォールバック
         function fallbackToLocalStorage() {
             const saved = localStorage.getItem('worker_vehicle_full_db_v2');
@@ -597,25 +482,29 @@
                 try {
                     items = JSON.parse(saved);
                 } catch(e) {
-                    items = excelFullData.map(i => ({...i, isPending: false, docs: i.docs || []}));
+                    items = [];
                 }
             } else {
-                items = excelFullData.map(i => ({...i, isPending: false, docs: i.docs || []}));
+                items = [];
             }
             renderList();
         }
 
         // クラウド・ローカル双方への書き込み
         async function saveItemToCloud(item) {
-            items = items.filter(i => i.id !== item.id);
-            items.push(item);
+            const existingIdx = items.findIndex(i => i.id === item.id);
+            if (existingIdx !== -1) {
+                items[existingIdx] = item;
+            } else {
+                items.push(item);
+            }
             items.sort((a, b) => (parseInt(a.id) || 0) - (parseInt(b.id) || 0));
 
             try {
                 localStorage.setItem('worker_vehicle_full_db_v2', JSON.stringify(items));
             } catch(e){}
 
-            if (isCloudConnected && auth.currentUser) {
+            if (isCloudConnected && auth.currentUser && dbCollectionRef) {
                 try {
                     await setDoc(doc(dbCollectionRef, item.id), item);
                 } catch (e) {
@@ -631,7 +520,7 @@
                 localStorage.setItem('worker_vehicle_full_db_v2', JSON.stringify(items));
             } catch(e){}
 
-            if (isCloudConnected && auth.currentUser) {
+            if (isCloudConnected && auth.currentUser && dbCollectionRef) {
                 try {
                     await deleteDoc(doc(dbCollectionRef, id));
                 } catch (e) {
@@ -932,6 +821,17 @@
                 totalW += validWorkers.length;
             });
             document.getElementById('count-worker').textContent = totalW;
+
+            if (filtered.length === 0) {
+                container.innerHTML = `
+                    <div class="p-12 text-center text-slate-400 bg-white rounded-xl border border-slate-200">
+                        <i class="fa-solid fa-folder-open text-4xl mb-3 text-slate-300"></i>
+                        <p class="text-sm font-bold text-slate-600">登録データがありません</p>
+                        <p class="text-xs text-slate-400 mt-1">「新規登録フォームを開く」ボタンまたは「インポート」からデータを取り込んでください。</p>
+                    </div>
+                `;
+                return;
+            }
 
             filtered.forEach(item => {
                 const card = document.createElement('div');
@@ -1252,18 +1152,19 @@ ${selectedWorkersText}
             document.getElementById('form-sidebar').scrollTo({ top: 0, behavior: 'smooth' });
         }
 
-        async function resetToInitial() {
+        async function resetAllData() {
             if (!isAdminMode) return;
-            openModal('初期設定に復元', '現在のデータベースを初期の34社構成にリセットします。\n追加・編集された内容は破棄されますが、よろしいですか？', async () => {
-                // 既存削除
-                for (const i of items) {
+            openModal('全データクリア', '現在のデータベース内のすべてのデータを削除します。\n削除されたデータは元に戻せませんが、よろしいですか？', async () => {
+                const targetItems = [...items];
+                for (const i of targetItems) {
                     await removeItemFromCloud(i.id);
                 }
-                // 初期化
-                await seedInitialDataToCloud();
+                items = [];
+                localStorage.removeItem('worker_vehicle_full_db_v2');
+                renderList();
                 closeModal();
-                showToast('初期データに復元しました');
-            }, '復元実行');
+                showToast('すべてのデータをクリアしました');
+            }, '全削除実行');
         }
 
         function openExportChoiceModal() {
@@ -1381,6 +1282,9 @@ ${selectedWorkersText}
             const nowStr = `${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日 ${now.getHours()}時${now.getMinutes()}分現在`;
 
             const tempDiv = document.createElement('div');
+            tempDiv.style.position = 'absolute';
+            tempDiv.style.left = '-9999px';
+            tempDiv.style.top = '-9999px';
             tempDiv.style.padding = '8mm';
             tempDiv.style.backgroundColor = '#ffffff';
             tempDiv.style.width = '275mm';
@@ -1408,6 +1312,8 @@ ${selectedWorkersText}
                 </div>
             `;
 
+            document.body.appendChild(tempDiv);
+
             const opt = {
                 margin:       [10, 10, 10, 10],
                 filename:     '作業員・車両情報一覧.pdf',
@@ -1417,8 +1323,10 @@ ${selectedWorkersText}
             };
 
             html2pdf().set(opt).from(tempDiv).save().then(() => {
+                if (document.body.contains(tempDiv)) document.body.removeChild(tempDiv);
                 showToast("PDFがダウンロードされました！");
             }).catch(err => {
+                if (document.body.contains(tempDiv)) document.body.removeChild(tempDiv);
                 console.error("html2pdfエラー:", err);
                 window.print();
             });
@@ -1635,7 +1543,7 @@ ${selectedWorkersText}
         window.closeExportChoiceModal = closeExportChoiceModal;
         window.openImportModal = openImportModal;
         window.closeModal = closeModal;
-        window.resetToInitial = resetToInitial;
+        window.resetAllData = resetAllData;
         window.handleFormSubmit = handleFormSubmit;
         window.resetForm = resetForm;
         window.addWorkerField = addWorkerField;
